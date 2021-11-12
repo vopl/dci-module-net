@@ -1,0 +1,54 @@
+/* This file is part of the the dci project. Copyright (C) 2013-2021 vopl, shtoba.
+   This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public
+   License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+   This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+   of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+   You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
+
+require "address.idl"
+
+scope net
+{
+    scope option
+    {
+        //options
+        struct Broadcast            {bool enable;}
+        struct ReuseAddr            {bool enable;}
+
+        struct NoDelay              {bool enable;}
+
+        struct Keepalive            {bool enable;}
+        struct KeepaliveIdle        {int32 seconds;}
+        struct KeepaliveInterval    {int32 seconds;}
+        struct KeepaliveCount       {int32 value;}
+
+        struct ReceiveBuf           {uint32 size;}
+        struct SendBuf              {uint32 size;}
+
+        struct Linger               {bool enable; int32 timeoutSeconds;}
+
+        struct JoinMulticast        {IpAddress group;}
+        struct LeaveMulticast       {IpAddress group;}
+    }
+
+    alias Option = variant
+    <
+        option::Broadcast,
+        option::ReuseAddr,
+
+        option::NoDelay,
+
+        option::Keepalive,
+        option::KeepaliveIdle,
+        option::KeepaliveInterval,
+        option::KeepaliveCount,
+
+        option::ReceiveBuf,
+        option::SendBuf,
+
+        option::Linger,
+
+        option::JoinMulticast,
+        option::LeaveMulticast
+    >;
+}

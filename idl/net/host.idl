@@ -1,0 +1,41 @@
+/* This file is part of the the dci project. Copyright (C) 2013-2021 vopl, shtoba.
+   This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public
+   License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+   This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+   of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+   You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
+
+require "link.idl"
+require "endpoint.idl"
+require "route.idl"
+require "stream.idl"
+require "datagram.idl"
+
+scope net
+{
+    /////////////////////////////////////////////////////////
+    interface Host
+    {
+        in  links           ()                  -> map<uint32, Link>;
+        out linkAdded       (uint32 id, Link v);
+
+        in  route4          ()                  -> list<route::Entry4>;
+        out route4Changed   ();
+
+        in  route6          ()                  -> list<route::Entry6>;
+        out route6Changed   ();
+
+        in  resolveIp       (string endpoint)   -> IpEndpoint;
+        in  resolveIp4      (string endpoint)   -> Ip4Endpoint;
+        in  resolveIp6      (string endpoint)   -> Ip6Endpoint;
+
+        in  resolveAllIp    (string endpoint)   -> list<IpEndpoint>;
+        in  resolveAllIp4   (string endpoint)   -> list<Ip4Endpoint>;
+        in  resolveAllIp6   (string endpoint)   -> list<Ip6Endpoint>;
+
+        in  streamServer    ()                  -> stream::Server;
+        in  streamClient    ()                  -> stream::Client;
+
+        in  datagramChannel()                   -> datagram::Channel;
+    }
+}
