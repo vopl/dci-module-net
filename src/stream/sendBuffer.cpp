@@ -5,6 +5,7 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "sendBuffer.hpp"
 
 namespace dci::module::net::stream
@@ -31,9 +32,9 @@ namespace dci::module::net::stream
     {
         _data.end().write(std::move(data));
 
-        if(_iovAmountMin4Enfill >= _iovAmount)
+        if(_bufsAmountMin4Enfill >= _bufsAmount)
         {
-            enfillIov();
+            enfillBufs();
         }
     }
 
@@ -41,33 +42,33 @@ namespace dci::module::net::stream
     void SendBuffer::clear()
     {
         _data.clear();
-        _iovAmount = 0;
-        _iovSize = 0;
+        _bufsAmount = 0;
+        _bufsSize = 0;
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     bool SendBuffer::empty() const
     {
-        return !_iovSize;
+        return !_bufsSize;
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    iovec* SendBuffer::iov()
+    Buf* SendBuffer::bufs()
     {
         dbgAssert(!empty());
-        return &_iov[0];
+        return &_bufs[0];
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    uint32 SendBuffer::iovAmount() const
+    uint32 SendBuffer::bufsAmount() const
     {
-        return _iovAmount;
+        return _bufsAmount;
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    uint32 SendBuffer::iovSize() const
+    uint32 SendBuffer::bufsSize() const
     {
-        return _iovSize;
+        return _bufsSize;
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -79,27 +80,27 @@ namespace dci::module::net::stream
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     void SendBuffer::flush(uint32 size)
     {
-        dbgAssert(_iovSize >= size);
+        dbgAssert(_bufsSize >= size);
         dbgAssert(!empty());
 
         _data.begin().remove(size);
-        enfillIov();
+        enfillBufs();
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void SendBuffer::enfillIov()
+    void SendBuffer::enfillBufs()
     {
-        _iovAmount = 0;
-        _iovSize = 0;
+        _bufsAmount = 0;
+        _bufsSize = 0;
         bytes::Cursor c(_data.begin());
 
-        while(!c.atEnd() && _iovAmount < _iovAmountMax)
+        while(!c.atEnd() && _bufsAmount < _bufsAmountMax)
         {
-            _iov[_iovAmount].iov_base = const_cast<byte *>(c.continuousData());
-            _iov[_iovAmount].iov_len = c.continuousDataSize();
+            _bufs[_bufsAmount].data() = reinterpret_cast<Buf::Data>(const_cast<byte *>(c.continuousData()));
+            _bufs[_bufsAmount].len() = c.continuousDataSize();
 
-            _iovSize += _iov[_iovAmount].iov_len;
-            _iovAmount++;
+            _bufsSize += _bufs[_bufsAmount].len();
+            _bufsAmount++;
             c.advanceChunks(1);
         }
     }

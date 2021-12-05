@@ -7,6 +7,8 @@
 
 #pragma once
 #include "pch.hpp"
+#include "dci/poll/descriptor/native.hpp"
+#include "pch.hpp"
 #include "../optionsStore.hpp"
 #include "../utils/recvBuffer.hpp"
 #include "sendBuffer.hpp"
@@ -26,7 +28,7 @@ namespace dci::module::net
         public:
             Channel(
                     Host* host,
-                    int sock,
+                    poll::descriptor::Native sock,
                     const api::Endpoint& localEndpoint,
                     api::Endpoint&& remoteEndpoint);
 
@@ -39,31 +41,24 @@ namespace dci::module::net
             void failed(ExceptionPtr e, bool doClose = false);
             void close();
 
-            bool doWrite(int fd);
-            bool doRead(int fd);
+            bool doWrite(poll::descriptor::Native native);
+            bool doRead(poll::descriptor::Native native);
 
-            //static void s_connectSockReady(void* self, int fd, std::uint_fast32_t readyState);
-            void connectSockReady(int fd, std::uint_fast32_t readyState);
-
-            //static void s_connectedSockReady(void* self, int fd, std::uint_fast32_t readyState);
-            void connectedSockReady(int fd, std::uint_fast32_t readyState);
+            void connectSockReady(poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState);
+            void connectedSockReady(poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState);
 
         private:
             Host *              _host;
             poll::Descriptor    _sock;
-            sbs::Owner          _sockActOwner;
+            sbs::Owner          _sockReadyOwner;
             api::Endpoint       _localEndpoint;
             api::Endpoint       _remoteEndpoint;
 
-            SendBuffer          _sendBuffer;
-
-            std::uint_fast32_t  _lastReadyState = 0;
-
-            cmt::Promise<api::stream::Channel<>>
-                                _connectPromise;
+            SendBuffer                              _sendBuffer;
+            poll::descriptor::ReadyStateFlags       _lastReadyState{};
+            cmt::Promise<api::stream::Channel<>>    _connectPromise;
 
             bool                _connected = false;
-
             bool                _receiveStarted = false;
             Bytes               _receivedData;
         };

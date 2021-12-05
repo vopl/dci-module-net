@@ -28,16 +28,16 @@ namespace dci::module::net::datagram
 
         SourceUtilization fillFrom(bytes::Cursor& src);
 
-        iovec* iov();
-        uint32 iovAmount() const;
+        Buf* bufs();
+        uint32 bufsAmount() const;
 
         void clear();
 
     private:
-        static constexpr uint32 _iovAmountMax = UIO_MAXIOV;
+        static constexpr uint32 _bufsAmountMax = Buf::_maxBufs;
 
     private:
-        iovec   _iov[_iovAmountMax];
-        uint32  _iovAmount = 0;
+        Buf     _bufs[_bufsAmountMax];
+        uint32  _bufsAmount = 0;
     };
 }

@@ -5,6 +5,7 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "link.hpp"
 
 namespace dci::module::net
@@ -139,6 +140,16 @@ namespace dci::module::net
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    void Link::setIp4(List<api::link::Ip4Address> addresses)
+    {
+        if(_ip4 != addresses)
+        {
+            _ip4 = addresses;
+            _changed = true;
+        }
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     void Link::addIp4(api::link::Ip4Address address)
     {
         auto iter = std::find_if(_ip4.begin(), _ip4.end(), AddressEqualPred(address));
@@ -160,6 +171,16 @@ namespace dci::module::net
         if(_ip4.end() != iter)
         {
             _ip4.erase(iter);
+            _changed = true;
+        }
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    void Link::setIp6(List<api::link::Ip6Address> addresses)
+    {
+        if(_ip6 != addresses)
+        {
+            _ip6 = addresses;
             _changed = true;
         }
     }

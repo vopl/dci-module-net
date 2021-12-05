@@ -5,6 +5,7 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "client.hpp"
 #include "../host.hpp"
 
@@ -32,7 +33,7 @@ namespace dci::module::net::stream
 
         methods()->connect() += this * [this](auto&& endpoint)
         {
-            stream::Channel* c = new stream::Channel(_host, -1, _bindEndpoint, api::Endpoint(std::forward<decltype(endpoint)>(endpoint)));
+            stream::Channel* c = new stream::Channel{_host, {}, _bindEndpoint, api::Endpoint(std::forward<decltype(endpoint)>(endpoint))};
             c->involvedChanged() += c * [c](bool v)
             {
                 if(!v)

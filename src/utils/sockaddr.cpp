@@ -5,6 +5,7 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "sockaddr.hpp"
 
 namespace dci::module::net::utils::sockaddr
@@ -19,7 +20,7 @@ namespace dci::module::net::utils::sockaddr
         case 2:
             return AF_INET6;
         case 3:
-            return AF_LOCAL;
+            return AF_UNIX;
         }
 
         return AF_UNSPEC;
@@ -47,7 +48,7 @@ namespace dci::module::net::utils::sockaddr
     {
         ::sockaddr_un* dst2 = reinterpret_cast<::sockaddr_un *>(dst);
         memset(dst2, 0, sizeof(*dst2));
-        dst2->sun_family = AF_LOCAL;
+        dst2->sun_family = AF_UNIX;
 
         std::size_t pathLen = std::min(sizeof(dst2->sun_path), src.address.size());
 
@@ -90,11 +91,53 @@ namespace dci::module::net::utils::sockaddr
             return convert(reinterpret_cast<const ::sockaddr_in*>(src), srcLen, dst.sget<api::Ip4Endpoint>());
         case AF_INET6:
             return convert(reinterpret_cast<const ::sockaddr_in6*>(src), srcLen, dst.sget<api::Ip6Endpoint>());
-        case AF_LOCAL:
+        case AF_UNIX:
             return convert(reinterpret_cast<const ::sockaddr_un*>(src), srcLen, dst.sget<api::LocalEndpoint>());
         }
 
         dst = api::NullEndpoint{};
+
+        return false;
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    bool convert(const ::sockaddr* src, socklen_t /*srcLen*/, api::NullEndpoint& /*dst*/)
+    {
+        if(AF_UNSPEC == src->sa_family)
+            return true;
+
+        return false;
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    bool convert(const ::sockaddr* src, socklen_t srcLen, api::LocalEndpoint& dst)
+    {
+        if(AF_UNIX == src->sa_family)
+        {
+            return convert(reinterpret_cast<const ::sockaddr_un*>(src), srcLen, dst);
+        }
+
+        return false;
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    bool convert(const ::sockaddr* src, socklen_t srcLen, api::Ip4Endpoint& dst)
+    {
+        if(AF_INET == src->sa_family)
+        {
+            return convert(reinterpret_cast<const ::sockaddr_in*>(src), srcLen, dst);
+        }
+
+        return false;
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    bool convert(const ::sockaddr* src, socklen_t srcLen, api::Ip6Endpoint& dst)
+    {
+        if(AF_INET6 == src->sa_family)
+        {
+            return convert(reinterpret_cast<const ::sockaddr_in6*>(src), srcLen, dst);
+        }
 
         return false;
     }
@@ -110,9 +153,9 @@ namespace dci::module::net::utils::sockaddr
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     bool convert(const ::sockaddr_un* src, socklen_t srcLen, api::LocalEndpoint& dst)
     {
-        dbgAssert(AF_LOCAL == src->sun_family);
+        dbgAssert(AF_UNIX == src->sun_family);
 
-        if(srcLen < offsetof(::sockaddr_un, sun_path))
+        if(srcLen < static_cast<socklen_t>(offsetof(::sockaddr_un, sun_path)))
         {
             return false;
         }
@@ -126,14 +169,14 @@ namespace dci::module::net::utils::sockaddr
     {
         dbgAssert(AF_INET == src->sin_family);
 
-        if(srcLen < offsetof(::sockaddr_in, sin_addr))
+        if(srcLen < static_cast<socklen_t>(offsetof(::sockaddr_in, sin_addr)))
         {
             return false;
         }
 
         dst.port = ntohs(src->sin_port);
 
-        if(srcLen >= offsetof(::sockaddr_in, sin_addr) + sizeof(::sockaddr_in::sin_addr))
+        if(srcLen >= static_cast<socklen_t>(offsetof(::sockaddr_in, sin_addr) + sizeof(::sockaddr_in::sin_addr)))
         {
             memcpy(dst.address.octets.data(), &src->sin_addr, sizeof(::sockaddr_in::sin_addr));
         }
@@ -151,14 +194,14 @@ namespace dci::module::net::utils::sockaddr
     {
         dbgAssert(AF_INET6 == src->sin6_family);
 
-        if(srcLen < offsetof(::sockaddr_in6, sin6_addr))
+        if(srcLen < static_cast<socklen_t>(offsetof(::sockaddr_in6, sin6_addr)))
         {
             return false;
         }
 
         dst.port = ntohs(src->sin6_port);
 
-        if(srcLen >= offsetof(::sockaddr_in6, sin6_addr) + sizeof(::sockaddr_in6::sin6_addr))
+        if(srcLen >= static_cast<socklen_t>(offsetof(::sockaddr_in6, sin6_addr) + sizeof(::sockaddr_in6::sin6_addr)))
         {
             memcpy(dst.address.octets.data(), &src->sin6_addr, sizeof(::sockaddr_in6::sin6_addr));
         }

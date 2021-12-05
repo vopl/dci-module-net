@@ -17,10 +17,7 @@ scope net
 
         struct NoDelay              {bool enable;}
 
-        struct Keepalive            {bool enable;}
-        struct KeepaliveIdle        {int32 seconds;}
-        struct KeepaliveInterval    {int32 seconds;}
-        struct KeepaliveCount       {int32 value;}
+        struct Keepalive            {bool enable; int32 idleSeconds; int32 intervalSeconds; int32 count;}
 
         struct ReceiveBuf           {uint32 size;}
         struct SendBuf              {uint32 size;}
@@ -39,9 +36,6 @@ scope net
         option::NoDelay,
 
         option::Keepalive,
-        option::KeepaliveIdle,
-        option::KeepaliveInterval,
-        option::KeepaliveCount,
 
         option::ReceiveBuf,
         option::SendBuf,

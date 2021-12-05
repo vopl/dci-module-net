@@ -5,6 +5,7 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "sendBuffer.hpp"
 
 namespace dci::module::net::datagram
@@ -22,14 +23,14 @@ namespace dci::module::net::datagram
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     SendBuffer::SourceUtilization SendBuffer::fillFrom(bytes::Cursor& src)
     {
-        dbgAssert(!_iovAmount);
-        _iovAmount = 0;
+        dbgAssert(!_bufsAmount);
+        _bufsAmount = 0;
 
         for(;;)
         {
             if(src.atEnd())
             {
-                if(_iovAmount)
+                if(_bufsAmount)
                 {
                     return SourceUtilization::full;
                 }
@@ -37,16 +38,16 @@ namespace dci::module::net::datagram
                 return SourceUtilization::none;
             }
 
-            if(_iovAmount >= _iovAmountMax)
+            if(_bufsAmount >= _bufsAmountMax)
             {
                 return SourceUtilization::partial;
             }
 
-            _iov[_iovAmount].iov_base = const_cast<byte *>(src.continuousData());
-            _iov[_iovAmount].iov_len = src.continuousDataSize();
+            _bufs[_bufsAmount].data() = reinterpret_cast<Buf::Data>(const_cast<byte*>(src.continuousData()));
+            _bufs[_bufsAmount].len() = src.continuousDataSize();
 
             src.advanceChunks(1);
-            _iovAmount++;
+            _bufsAmount++;
         }
 
         dbgWarn("unreacheable");
@@ -54,20 +55,20 @@ namespace dci::module::net::datagram
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    iovec* SendBuffer::iov()
+    Buf* SendBuffer::bufs()
     {
-        return &_iov[0];
+        return &_bufs[0];
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    uint32 SendBuffer::iovAmount() const
+    uint32 SendBuffer::bufsAmount() const
     {
-        return _iovAmount;
+        return _bufsAmount;
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     void SendBuffer::clear()
     {
-        _iovAmount = 0;
+        _bufsAmount = 0;
     }
 }

@@ -9,7 +9,12 @@
 #include "pch.hpp"
 #include "links.hpp"
 #include "routes.hpp"
-#include "engine/rtnetlink.hpp"
+
+#ifdef _WIN32
+#   include "enumerator/netioapi.hpp"
+#else
+#   include "enumerator/rtnetlink.hpp"
+#endif
 #include "ipResolver.hpp"
 
 #include "stream/server.hpp"
@@ -47,17 +52,21 @@ namespace dci::module::net
         datagram::SendBuffer* getDatagramSendBuffer();
 
     private:
-        Links               _links;
-        Routes              _routes;
-        engine::Rtnetlink   _engine{&_links, &_routes};
-        IpResolver          _ipResolver;
+        Links                   _links;
+        Routes                  _routes;
+#ifdef _WIN32
+        enumerator::Netioapi    _enumerator{&_links, &_routes};
+#else
+        enumerator::Rtnetlink   _enumerator{&_links, &_routes};
+#endif
+        IpResolver              _ipResolver;
 
         std::set<stream::Server*>       _streamServers;
         std::set<stream::Client*>       _streamClients;
         std::set<stream::Channel*>      _streamChannels;
         std::set<datagram::Channel*>    _datagramChannels;
 
-        utils::RecvBuffer     _recvBuffer;
+        utils::RecvBuffer       _recvBuffer;
         datagram::SendBuffer    _datagramSendBuffer;
 
     };

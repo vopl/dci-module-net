@@ -7,6 +7,7 @@
 
 #pragma once
 #include "pch.hpp"
+#include "dci/poll/descriptor/native.hpp"
 #include "../optionsStore.hpp"
 #include "../utils/recvBuffer.hpp"
 
@@ -31,9 +32,9 @@ namespace dci::module::net
             void close();
 
             ExceptionPtr open(const api::Endpoint* bind = nullptr, const api::Endpoint* peer = nullptr);
-            void doSend(int fd, const Bytes& data, const api::Endpoint& peer);
-            void doRecv(int fd);
-            void sockReady(int fd, std::uint_fast32_t readyState);
+            void doSend(poll::descriptor::Native native, const Bytes& data, const api::Endpoint& peer);
+            void doRecv(poll::descriptor::Native native);
+            void sockReady(poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState);
 
         private:
             Host *              _host;

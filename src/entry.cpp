@@ -34,13 +34,6 @@ namespace dci::module::net
             : public dci::host::module::Entry
         {
             Host * _host = nullptr;
-            ~Entry() override
-            {
-                if(_host)
-                {
-                    delete std::exchange(_host, nullptr);
-                }
-            }
 
             const Manifest& manifest() override
             {

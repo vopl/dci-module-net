@@ -6,12 +6,24 @@ dciIntegrationUnit(module-net
 file(GLOB_RECURSE SRC src/*)
 file(GLOB_RECURSE IDL idl/*)
 
+if(WIN32)
+    list(FILTER SRC EXCLUDE REGEX ".*enumerator.rtnetlink.(hpp|cpp)$")
+else()
+    list(FILTER SRC EXCLUDE REGEX ".*enumerator.netioapi.(hpp|cpp)$")
+endif()
+
 add_library(${UNAME} MODULE ${INC} ${SRC} ${IDL})
 target_include_directories(${UNAME} PRIVATE src)
 
-target_link_libraries(${UNAME} PRIVATE
-    anl
-    pthread)
+if(WIN32)
+    target_link_libraries(${UNAME} PRIVATE Ws2_32.lib Iphlpapi.lib)
+    #mingw error workaround
+    #source/module/net/CMakeFiles/module-net.dir/src/entry.cpp.obj:entry.cpp:(.debug_info+0x16): relocation truncated to fit: IMAGE_REL_AMD64_SECREL against `.debug_line'
+    target_link_options(${UNAME} PRIVATE -Wl,--default-image-base-low)
+else()
+    target_link_libraries(${UNAME} PRIVATE anl pthread)
+endif()
+
 
 ##############################################################
 include(dciIdl)
@@ -44,7 +56,7 @@ dciTest(${UNAME} mstart
     SRC
         ${TST}
     LINK
-        host
+        host-lib
         bytes
         utils
         sbs

@@ -12,9 +12,9 @@ scope net::route
     struct Entry4
     {
         Ip4Address  dst;
-        Ip4Address  dstMask;
+        uint8       dstPrefixLength;
 
-        Ip4Address  gateway;
+        Ip4Address  nextHop;
 
         uint32      linkId;
     }
@@ -22,7 +22,7 @@ scope net::route
     struct Entry6
     {
         Ip6Address  dst;
-        uint16      dstPrefixLength;
+        uint8       dstPrefixLength;
 
         Ip6Address  nextHop;
 

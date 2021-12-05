@@ -5,6 +5,7 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "host.hpp"
 #include "stream/server.hpp"
 #include "stream/client.hpp"
@@ -22,7 +23,7 @@ namespace dci::module::net
     {
         methods()->streamServer() += this * [this]()
         {
-            stream::Server* s = new stream::Server(this);
+            stream::Server* s = new stream::Server{this};
             s->involvedChanged() += s * [s](bool v)
             {
                 if(!v)
@@ -35,7 +36,7 @@ namespace dci::module::net
 
         methods()->streamClient() += this * [this]()
         {
-            stream::Client* c = new stream::Client(this);
+            stream::Client* c = new stream::Client{this};
             c->involvedChanged() += c * [c](bool v)
             {
                 if(!v)
@@ -48,7 +49,7 @@ namespace dci::module::net
 
         methods()->datagramChannel() += this * [this]()
         {
-            datagram::Channel* c = new datagram::Channel(this);
+            datagram::Channel* c = new datagram::Channel{this};
             c->involvedChanged() += c * [c](bool v)
             {
                 if(!v)

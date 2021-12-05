@@ -24,9 +24,11 @@ namespace dci::module::net
         void setMtu(uint32 v);
         void setFlags(api::link::Flags v);
 
+        void setIp4(List<api::link::Ip4Address> addresses);
         void addIp4(api::link::Ip4Address address);
         void delIp4(api::link::Ip4Address address);
 
+        void setIp6(List<api::link::Ip6Address> addresses);
         void addIp6(api::link::Ip6Address address);
         void delIp6(api::link::Ip6Address address);
 
@@ -34,13 +36,13 @@ namespace dci::module::net
         void remove();
 
     private:
+        uint32                      _id = 0;
         List<uint8>                 _hwAddress;
         String                      _name;
+        uint32                      _mtu = 0;
+        api::link::Flags            _flags {};
         List<api::link::Ip4Address> _ip4;
         List<api::link::Ip6Address> _ip6;
-        uint32                      _id = 0;
-        api::link::Flags            _flags {};
-        uint32                      _mtu = 0;
 
         bool                        _changed = false;
     };

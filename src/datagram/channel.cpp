@@ -5,10 +5,12 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "channel.hpp"
 #include "../host.hpp"
 #include "../utils/sockaddr.hpp"
 #include "../utils/makeError.hpp"
+#include "dci/poll/descriptor/native.hpp"
 #include "sendBuffer.hpp"
 
 namespace dci::module::net::datagram
@@ -17,7 +19,7 @@ namespace dci::module::net::datagram
     Channel::Channel(Host * host)
         : api::datagram::Channel<>::Opposite{idl::interface::Initializer{}}
         , _host{host}
-        , _sock{-1, [this](int fd, std::uint_fast32_t readyState){sockReady(fd, readyState);}, nullptr}
+        , _sock{{}, [this](poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState){sockReady(native, readyState);}, nullptr}
     {
         _host->track(this);
 
@@ -66,7 +68,7 @@ namespace dci::module::net::datagram
                     sockaddr_storage    _space;
                 } saddr;
                 socklen_t saddrLen = sizeof(saddr);
-                if(::getsockname(_sock, &saddr._base, &saddrLen))
+                if(::getsockname(_sock.native(), &saddr._base, &saddrLen))
                 {
                     return utils::fetchSystemError<api::Endpoint>();
                 }
@@ -90,7 +92,7 @@ namespace dci::module::net::datagram
                 }
             }
 
-            doSend(_sock.fd(), std::forward<decltype(data)>(data), peer);
+            doSend(_sock.native(), std::forward<decltype(data)>(data), peer);
         };
 
         methods()->close() += this * [&]()
@@ -151,13 +153,17 @@ namespace dci::module::net::datagram
         dbgAssert(!_opened);
         dbgAssert(bind || peer);
 
-        int sock = ::socket(utils::sockaddr::family(bind ? *bind : *peer), SOCK_DGRAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0);
-        if(-1 == sock)
+#ifdef _WIN32
+        dci::poll::descriptor::Native native = ::WSASocketW(utils::sockaddr::family(bind ? *bind : *peer), SOCK_DGRAM, PF_UNSPEC, nullptr, 0, WSA_FLAG_NO_HANDLE_INHERIT);
+#else
+        dci::poll::descriptor::Native native = ::socket(utils::sockaddr::family(bind ? *bind : *peer), SOCK_DGRAM|SOCK_NONBLOCK|SOCK_CLOEXEC, PF_UNSPEC);
+#endif
+        if(native._bad == native._value)
         {
             return utils::fetchSystemError();
         }
 
-        std::error_code ec = _sock.attach(sock);
+        std::error_code ec = _sock.attach(native);
         if(ec)
         {
             _sock.close();
@@ -180,7 +186,7 @@ namespace dci::module::net::datagram
             } saddr;
             socklen_t saddrLen = utils::sockaddr::convert(*bind, &saddr._base);
 
-            if(::bind(sock, &saddr._base, saddrLen))
+            if(::bind(native, &saddr._base, saddrLen))
             {
                 std::exception_ptr e = utils::fetchSystemError();
                 _sock.close();
@@ -193,7 +199,7 @@ namespace dci::module::net::datagram
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void Channel::doSend(int fd, const Bytes& data, const api::Endpoint& peer)
+    void Channel::doSend(poll::descriptor::Native native, const Bytes& data, const api::Endpoint& peer)
     {
         if(data.empty())
         {
@@ -208,13 +214,26 @@ namespace dci::module::net::datagram
         socklen_t saddrLen = utils::sockaddr::convert(peer, &saddr._base);
 
         SendBuffer* sendBuffer = _host->getDatagramSendBuffer();
-        msghdr msg = {&saddr._base, saddrLen, sendBuffer->iov(), 0, nullptr, 0, 0};
+
+#ifdef _WIN32
+#else
+        msghdr msg = {&saddr._base, saddrLen, sendBuffer->bufs(), 0, nullptr, 0, 0};
+#endif
 
         bytes::Cursor src = data.begin();
         while(SendBuffer::SourceUtilization::partial == sendBuffer->fillFrom(src))
         {
-            msg.msg_iovlen = sendBuffer->iovAmount();
-            ssize_t res = ::sendmsg(fd, &msg, MSG_MORE);
+#ifdef _WIN32
+            DWORD sent{};
+            ssize_t res = ::WSASendTo(native, sendBuffer->bufs(), sendBuffer->bufsAmount(), &sent, MSG_PARTIAL, &saddr._base, saddrLen, nullptr, nullptr);
+            if(!res)
+            {
+                res = sent;
+            }
+#else
+            msg.msg_iovlen = sendBuffer->bufsAmount();
+            ssize_t res = ::sendmsg(native, &msg, MSG_MORE);
+#endif
             sendBuffer->clear();
 
             if(0 > res)
@@ -225,9 +244,19 @@ namespace dci::module::net::datagram
             }
         }
 
-        msg.msg_iovlen = sendBuffer->iovAmount();
+#ifdef _WIN32
+        dbgAssert(sendBuffer->bufsAmount());
+        DWORD sent{};
+        ssize_t res = ::WSASendTo(native, sendBuffer->bufs(), sendBuffer->bufsAmount(), &sent, 0, &saddr._base, saddrLen, nullptr, nullptr);
+        if(!res)
+        {
+            res = sent;
+        }
+#else
+        msg.msg_iovlen = sendBuffer->bufsAmount();
         dbgAssert(msg.msg_iovlen);
-        ssize_t res = ::sendmsg(fd, &msg, 0);
+        ssize_t res = ::sendmsg(native, &msg, 0);
+#endif
         sendBuffer->clear();
 
         if(0 > res)
@@ -239,18 +268,29 @@ namespace dci::module::net::datagram
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void Channel::doRecv(int fd)
+    void Channel::doRecv(poll::descriptor::Native native)
     {
         union
         {
             sockaddr            _base;
             sockaddr_storage    _space;
         } saddr;
+        socklen_t saddrLen = sizeof(saddr);
 
         auto recvBuffer = _host->getRecvBuffer();
-        msghdr msg = {&saddr._base, sizeof(saddr), recvBuffer->iov(), recvBuffer->iovAmount(), nullptr, 0, 0};
-
-        ssize_t res = ::recvmsg(fd, &msg, 0);
+#ifdef _WIN32
+        DWORD received{};
+        DWORD flags{};
+        ssize_t res = ::WSARecvFrom(native, recvBuffer->bufs(), recvBuffer->bufsAmount(), &received, &flags, &saddr._base, &saddrLen, nullptr, nullptr);
+        if(!res)
+        {
+            res = received;
+        }
+#else
+        msghdr msg = {&saddr._base, saddrLen, recvBuffer->bufs(), recvBuffer->bufsAmount(), nullptr, 0, 0};
+        ssize_t res = ::recvmsg(native, &msg, 0);
+        saddrLen = msg.msg_namelen;
+#endif
         if(0 > res)
         {
             failed(utils::fetchSystemError(), true);
@@ -258,7 +298,7 @@ namespace dci::module::net::datagram
         }
 
         api::Endpoint peer;
-        utils::sockaddr::convert(static_cast<sockaddr *>(msg.msg_name), msg.msg_namelen, peer);
+        utils::sockaddr::convert(&saddr._base, saddrLen, peer);
 
         Bytes data;
         recvBuffer->flushTo(data.end(), static_cast<uint32>(res));
@@ -267,9 +307,9 @@ namespace dci::module::net::datagram
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void Channel::sockReady(int fd, std::uint_fast32_t readyState)
+    void Channel::sockReady(poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState)
     {
-        if(poll::Descriptor::rsf_error & readyState)
+        if(poll::descriptor::rsf_error & readyState)
         {
             std::error_code ec = _sock.error();
             if(ec)
@@ -284,13 +324,13 @@ namespace dci::module::net::datagram
             return;
         }
 
-        if(poll::Descriptor::rsf_eof & readyState)
+        if(poll::descriptor::rsf_eof & readyState)
         {
             _sock.close();
             return;
         }
 
-        if(poll::Descriptor::rsf_close & readyState)
+        if(poll::descriptor::rsf_close & readyState)
         {
             _opened = false;
             _localEndpoint = api::Endpoint();
@@ -300,9 +340,9 @@ namespace dci::module::net::datagram
             return;
         }
 
-        if(poll::Descriptor::rsf_read & readyState)
+        if(poll::descriptor::rsf_read & readyState)
         {
-            doRecv(fd);
+            doRecv(native);
         }
     }
 }

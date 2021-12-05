@@ -69,9 +69,22 @@ namespace dci::module::net
         deleted4.swap(_deleted4);
         deleted6.swap(_deleted6);
 
+        auto doDelete = [](auto& container, const auto& element)
+        {
+            auto iter = std::find(container.begin(), container.end(), element);
+            if(container.end() != iter)
+            {
+                container.erase(iter);
+                return true;
+            }
+
+            return false;
+        };
+
+        bool some4Deleted = false;
         for(const api::route::Entry4& e : deleted4)
         {
-            _table4.erase(std::find(_table4.begin(), _table4.end(), e));
+            some4Deleted |= doDelete(_table4, e);
         }
 
         for(const api::route::Entry4& e : added4)
@@ -79,9 +92,10 @@ namespace dci::module::net
             _table4.push_back(e);
         }
 
+        bool some6Deleted = false;
         for(const api::route::Entry6& e : deleted6)
         {
-            _table6.erase(std::find(_table6.begin(), _table6.end(), e));
+            some6Deleted |= doDelete(_table6, e);
         }
 
         for(const api::route::Entry6& e : added6)
@@ -89,12 +103,12 @@ namespace dci::module::net
             _table6.push_back(e);
         }
 
-        if(!added4.empty() || !deleted4.empty())
+        if(!added4.empty() || some4Deleted)
         {
             (*_iface)->route4Changed();
         }
 
-        if(!added6.empty() || !deleted6.empty())
+        if(!added6.empty() || some6Deleted)
         {
             (*_iface)->route6Changed();
         }

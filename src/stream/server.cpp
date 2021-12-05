@@ -5,10 +5,12 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "server.hpp"
 #include "../host.hpp"
 #include "../utils/sockaddr.hpp"
 #include "../utils/makeError.hpp"
+#include "dci/poll/descriptor/native.hpp"
 
 namespace dci::module::net::stream
 {
@@ -16,7 +18,7 @@ namespace dci::module::net::stream
     Server::Server(Host* host)
         : api::stream::Server<>::Opposite(idl::interface::Initializer())
         , _host{host}
-        , _sock{-1, [this](int fd, std::uint_fast32_t readyState) {sockReady(fd, readyState);}}
+        , _sock{poll::descriptor::Native{}, [this](poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState) {sockReady(native, readyState);}}
     {
         _host->track(this);
 
@@ -24,7 +26,7 @@ namespace dci::module::net::stream
         {
             if(_sock.valid())
             {
-                ExceptionPtr e = applyOption(_sock, op);
+                ExceptionPtr e = applyOption(_sock.native(), op);
                 if(e)
                 {
                     return cmt::readyFuture<void>(e);
@@ -75,43 +77,47 @@ namespace dci::module::net::stream
         } saddr;
         socklen_t saddrLen = utils::sockaddr::convert(_bindEndpoint, &saddr._base);
 
-        int sock = ::socket(saddr._base.sa_family, SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0);
+#ifdef _WIN32
+        dci::poll::descriptor::Native native = ::WSASocketW(saddr._base.sa_family, SOCK_STREAM, PF_UNSPEC, nullptr, 0, WSA_FLAG_NO_HANDLE_INHERIT);
+#else
+        poll::descriptor::Native native = ::socket(saddr._base.sa_family, SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0);
+#endif
 
-        if(-1 == sock)
+        if(native._bad == native._value)
         {
             return utils::fetchSystemError<void>();
         }
 
-        std::error_code ec = _sock.attach(sock);
+        std::error_code ec = _sock.attach(native);
         if(ec)
         {
             return utils::makeError<void>(ec);
         }
 
-        ExceptionPtr e = applyOptions(_sock);
+        ExceptionPtr e = applyOptions(_sock.native());
         if(e)
         {
             return cmt::readyFuture<void>(e);
         }
 
-        if(AF_LOCAL == saddr._base.sa_family)
+        if(AF_UNIX == saddr._base.sa_family)
         {
             unlink(saddr._un.sun_path);
         }
 
-        if(::bind(sock, &saddr._base, saddrLen))
+        if(::bind(native, &saddr._base, saddrLen))
         {
             return utils::fetchSystemError<void>();
         }
 
         saddrLen = sizeof(saddr);
-        if(::getsockname(sock, &saddr._base, &saddrLen))
+        if(::getsockname(native, &saddr._base, &saddrLen))
         {
             return utils::fetchSystemError<void>();
         }
         utils::sockaddr::convert(&saddr._base, saddrLen, _localEndpoint);
 
-        if(::listen(sock, 5))
+        if(::listen(native, 5))
         {
             return utils::fetchSystemError<void>();
         }
@@ -130,9 +136,9 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void Server::sockReady(int fd, std::uint_fast32_t readyState)
+    void Server::sockReady(poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState)
     {
-        if(poll::Descriptor::rsf_error & readyState)
+        if(poll::descriptor::rsf_error & readyState)
         {
             std::error_code ec = _sock.error();
             if(ec)
@@ -144,7 +150,7 @@ namespace dci::module::net::stream
             return;
         }
 
-        if(poll::Descriptor::rsf_eof & readyState)
+        if(poll::descriptor::rsf_eof & readyState)
         {
             methods()->closed();
             _bindEndpoint = api::Endpoint();
@@ -152,7 +158,7 @@ namespace dci::module::net::stream
             return;
         }
 
-        if(poll::Descriptor::rsf_read & readyState)
+        if(poll::descriptor::rsf_read & readyState)
         {
             for(;;)
             {
@@ -163,13 +169,17 @@ namespace dci::module::net::stream
                 } saddr;
                 ::socklen_t saddrLen = sizeof(saddr);
 
-                int sock = ::accept4(fd, &saddr._base, &saddrLen, SOCK_NONBLOCK|SOCK_CLOEXEC);
-                if(-1 != sock)
+#ifdef _WIN32
+                poll::descriptor::Native native2 = ::accept(native, &saddr._base, &saddrLen);
+#else
+                poll::descriptor::Native native2 = ::accept4(native, &saddr._base, &saddrLen, SOCK_NONBLOCK|SOCK_CLOEXEC);
+#endif
+                if(native2._bad != native2._value)
                 {
                     api::Endpoint remoteEndpoint;
                     utils::sockaddr::convert(&saddr._base, saddrLen, remoteEndpoint);
 
-                    stream::Channel* c = new stream::Channel(_host, sock, _localEndpoint, std::move(remoteEndpoint));
+                    stream::Channel* c = new stream::Channel{_host, native2, _localEndpoint, std::move(remoteEndpoint)};
                     c->involvedChanged() += c * [c](bool v)
                     {
                         if(!v)
@@ -181,7 +191,12 @@ namespace dci::module::net::stream
                 }
                 else
                 {
-                    if(EAGAIN != errno)
+#ifdef _WIN32
+                    bool failed = WSAEWOULDBLOCK != WSAGetLastError();
+#else
+                    bool failed = EAGAIN != errno;
+#endif
+                    if(failed)
                     {
                         methods()->failed(utils::fetchSystemError());
                     }

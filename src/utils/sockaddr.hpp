@@ -6,7 +6,7 @@
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
 #pragma once
-#include "../pch.hpp"
+#include "pch.hpp"
 
 namespace dci::module::net::utils::sockaddr
 {
@@ -20,6 +20,11 @@ namespace dci::module::net::utils::sockaddr
 
 
     bool convert(const ::sockaddr* src, socklen_t srcLen, api::Endpoint& dst);
+    bool convert(const ::sockaddr* src, socklen_t srcLen, api::NullEndpoint& dst);
+    bool convert(const ::sockaddr* src, socklen_t srcLen, api::LocalEndpoint& dst);
+    bool convert(const ::sockaddr* src, socklen_t srcLen, api::Ip4Endpoint& dst);
+    bool convert(const ::sockaddr* src, socklen_t srcLen, api::Ip6Endpoint& dst);
+
     bool convert(const ::sockaddr_un* src, socklen_t srcLen, api::NullEndpoint& dst);
     bool convert(const ::sockaddr_un* src, socklen_t srcLen, api::LocalEndpoint& dst);
     bool convert(const ::sockaddr_in* src, socklen_t srcLen, api::Ip4Endpoint& dst);

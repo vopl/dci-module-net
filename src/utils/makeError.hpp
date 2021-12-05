@@ -6,7 +6,7 @@
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
 #pragma once
-#include "../pch.hpp"
+#include "pch.hpp"
 
 namespace dci::module::net::utils
 {
@@ -30,30 +30,46 @@ namespace dci::module::net::utils
 
     inline std::exception_ptr makeError(const std::error_code& ec)
     {
-        switch(std::errc(ec.default_error_condition().value()))
+#ifdef _WIN32
+#   define ECODE(v) WSA##v
+#else
+#   define ECODE(v) v
+#endif
+        switch(ec.value())
         {
-        case std::errc::address_in_use                  : return makeError<api::AddressInIse>();
-        case std::errc::address_not_available           : return makeError<api::AddressNotAvailable>();
-        case std::errc::already_connected               : return makeError<api::AlreadyConnected>();
-        case std::errc::bad_address                     : return makeError<api::BadAddress>();
-        case std::errc::connection_aborted              : return makeError<api::ConnectionAborted>();
-        case std::errc::connection_refused              : return makeError<api::ConnectionRefused>();
-        case std::errc::connection_reset                : return makeError<api::ConnectionReset>();
-        case std::errc::host_unreachable                : return makeError<api::HostUnreachable>();
-        case std::errc::invalid_argument                : return makeError<api::InvalidArgument>();
-        case std::errc::network_down                    : return makeError<api::NetworkDown>();
-        case std::errc::network_reset                   : return makeError<api::NetworkReset>();
-        case std::errc::network_unreachable             : return makeError<api::NetworkUnreachable>();
-        case std::errc::not_connected                   : return makeError<api::NotConnected>();
-        case std::errc::operation_canceled              : return makeError<api::OperationCanceled>();
-        case std::errc::operation_in_progress           : return makeError<api::OperationInProgress>();
-        case std::errc::operation_not_permitted         : return makeError<api::OperationNotPermitted>();
-        case std::errc::operation_not_supported         : return makeError<api::OperationNotSupported>();
-        case std::errc::permission_denied               : return makeError<api::PermissionDenied>();
-        case std::errc::resource_unavailable_try_again  : return makeError<api::UnavaliableTryAgain>();
-        case std::errc::timed_out                       : return makeError<api::TimedOut>();
+        case ECODE(EADDRINUSE)     : return makeError<api::AddressInIse>();
+        case ECODE(EADDRNOTAVAIL)  : return makeError<api::AddressNotAvailable>();
+        case ECODE(EISCONN)        : return makeError<api::AlreadyConnected>();
+        case ECODE(EFAULT)         : return makeError<api::BadAddress>();
+        case ECODE(ECONNABORTED)   : return makeError<api::ConnectionAborted>();
+        case ECODE(ECONNREFUSED)   : return makeError<api::ConnectionRefused>();
+        case ECODE(ECONNRESET)     : return makeError<api::ConnectionReset>();
+        case ECODE(EHOSTUNREACH)   : return makeError<api::HostUnreachable>();
+        case ECODE(EINVAL)         : return makeError<api::InvalidArgument>();
+        case ECODE(ENETDOWN)       : return makeError<api::NetworkDown>();
+        case ECODE(ENETRESET)      : return makeError<api::NetworkReset>();
+        case ECODE(ENETUNREACH)    : return makeError<api::NetworkUnreachable>();
+        case ECODE(ENOTCONN)       : return makeError<api::NotConnected>();
+        case ECODE(EINPROGRESS)    : return makeError<api::OperationInProgress>();
+        case ECODE(EALREADY)       : return makeError<api::OperationInProgress>();
+        case ECODE(EOPNOTSUPP)     : return makeError<api::OperationNotSupported>();
+        case ECODE(EACCES)         : return makeError<api::PermissionDenied>();
+        case ECODE(ETIMEDOUT)      : return makeError<api::TimedOut>();
+#ifdef _WIN32
+        case WSAECANCELLED         : return makeError<api::OperationCanceled>();
+        case WSATRY_AGAIN          : return makeError<api::UnavaliableTryAgain>();
+        case WSAEWOULDBLOCK        : return makeError<api::UnavaliableTryAgain>();
+#else
+        case ECANCELED              : return makeError<api::OperationCanceled>();
+        case EPERM                  : return makeError<api::PermissionDenied>();
+#   if EAGAIN!=EWOULDBLOCK
+        case EAGAIN                 : return makeError<api::UnavaliableTryAgain>();
+#   endif
+        case EWOULDBLOCK            : return makeError<api::UnavaliableTryAgain>();
+#endif
         default: break;
         }
+#undef ECODE
 
         return makeError<api::Error>(ec.message());
     }
@@ -66,7 +82,11 @@ namespace dci::module::net::utils
 
     inline std::error_code fetchSystemErrorCode()
     {
+#ifdef _WIN32
+        return dci::utils::win32::error::make(WSAGetLastError());
+#else
         return std::error_code{errno, std::generic_category()};
+#endif
     }
 
     inline std::exception_ptr fetchSystemError()

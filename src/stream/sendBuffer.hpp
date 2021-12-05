@@ -25,27 +25,26 @@ namespace dci::module::net::stream
         void clear();
         bool empty() const;
 
-        iovec* iov();
-        uint32 iovAmount() const;
-        uint32 iovSize() const;
+        Buf* bufs();
+        uint32 bufsAmount() const;
+        uint32 bufsSize() const;
 
         uint32 totalSize() const;
 
         void flush(uint32 size);
 
     private:
-        void enfillIov();
+        void enfillBufs();
 
     private:
-        static constexpr uint32 _iovAmountMin4Enfill = 16;
-        static constexpr uint32 _iovAmountMax = UIO_MAXIOV;
+        static constexpr uint32 _bufsAmountMin4Enfill = 16;
+        static constexpr uint32 _bufsAmountMax = Buf::_maxBufs;
 
     private:
         Bytes   _data;
 
-        //iov
-        iovec   _iov[_iovAmountMax];
-        uint32  _iovAmount = 0;
-        uint32  _iovSize = 0;
+        Buf     _bufs[_bufsAmountMax];
+        uint32  _bufsAmount = 0;
+        uint32  _bufsSize = 0;
     };
 }

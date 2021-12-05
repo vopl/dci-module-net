@@ -8,6 +8,7 @@
 scope net
 {
     exception Error {}
+    exception ConnectionClosed : Error {}
     exception ResolveError : Error {}
 
     exception AddressInIse              : Error {}
@@ -25,7 +26,6 @@ scope net
     exception NotConnected              : Error {}
     exception OperationCanceled         : Error {}
     exception OperationInProgress       : Error {}
-    exception OperationNotPermitted     : Error {}
     exception OperationNotSupported     : Error {}
     exception PermissionDenied          : Error {}
     exception UnavaliableTryAgain       : Error {}

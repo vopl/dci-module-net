@@ -14,8 +14,9 @@ scope net
         /////////////////////////////////////////////////////////
         struct Ip4Address
         {
-            net::Ip4Address address;
+            uint8           prefixLength;
             net::Ip4Address netmask;
+            net::Ip4Address address;
             net::Ip4Address broadcast;
         }
 
@@ -30,8 +31,8 @@ scope net
 
         struct Ip6Address
         {
-            net::Ip6Address address;
             uint8           prefixLength;
+            net::Ip6Address address;
             Ip6AddressScope scope;
         }
 

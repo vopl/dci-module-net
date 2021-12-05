@@ -27,23 +27,17 @@ namespace dci::module::net
         void ensureWorkersRan();
         void workerProc();
 
-        static void wakeOwnerCb(void* cbData, int fd, std::uint_fast32_t readyState);
-        void wakeOwner();
-
     private:
         api::Host<>::Opposite *     _iface = nullptr;
         std::vector<std::thread>    _workers;
 
         ipResolver::Task*           _tasks4Worker = nullptr;
-        ipResolver::Task*           _tasks4Owner = nullptr;
 
         std::mutex                  _mtx;
         std::condition_variable     _notifier4Worker;
-        poll::Descriptor            _notifier4Owner;
 
         bool                        _stopFlag = false;
     };
-
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     template <class Value>
@@ -58,13 +52,13 @@ namespace dci::module::net
 
         using namespace ipResolver;
 
-        auto* t = new Task(std::forward<decltype(endpoint)>(endpoint));
-        auto res = t->init<Value>();
+        auto* t = new Task;
+        auto res = t->init<Value>(std::forward<decltype(endpoint)>(endpoint));
 
         {
             std::unique_lock l(_mtx);
 
-            t->_next = _tasks4Worker;
+            t->_next4Worker = _tasks4Worker;
             _tasks4Worker = t;
         }
 

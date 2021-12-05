@@ -28,7 +28,7 @@ namespace dci::module::net
         private:
             cmt::Future<void> listen(auto&& endpoint);
             void close();
-            void sockReady(int fd, std::uint_fast32_t readyState);
+            void sockReady(poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState);
 
         private:
             Host *              _host;

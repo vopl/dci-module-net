@@ -15,12 +15,12 @@ namespace dci::module::net
         using Options = std::vector<api::Option>;
 
     public:
-        static ExceptionPtr applyOption(int fd, const api::Option& op);
+        static ExceptionPtr applyOption(poll::descriptor::Native native, const api::Option& op);
 
         const Options& options() const;
         void pushOptions(const Options& ops);
         void pushOption(const api::Option& op);
-        ExceptionPtr applyOptions(int fd, bool flush=true);
+        ExceptionPtr applyOptions(poll::descriptor::Native native, bool flush=true);
 
     private:
         Options _options;

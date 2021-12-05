@@ -13,7 +13,7 @@ namespace dci::module::net
     class Links;
     class Routes;
 
-    namespace engine
+    namespace enumerator
     {
         class Rtnetlink
         {
@@ -24,7 +24,7 @@ namespace dci::module::net
         private:
             void doNextRequest();
             bool request(uint32 type);
-            void onSock(int fd, std::uint_fast32_t readyState);
+            void onSock(int fd, poll::descriptor::ReadyStateFlags readyState);
 
 
         private:

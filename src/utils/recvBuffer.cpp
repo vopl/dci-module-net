@@ -5,6 +5,7 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "recvBuffer.hpp"
 
 namespace dci::module::net::utils
@@ -12,7 +13,7 @@ namespace dci::module::net::utils
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     RecvBuffer::RecvBuffer()
     {
-        allocate(_iovAmount);
+        allocate(_bufsAmount);
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -25,15 +26,15 @@ namespace dci::module::net::utils
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    iovec* RecvBuffer::iov()
+    Buf* RecvBuffer::bufs()
     {
-        return &_iov[0];
+        return &_bufs[0];
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    uint32 RecvBuffer::iovAmount()
+    uint32 RecvBuffer::bufsAmount()
     {
-        return _iovAmount;
+        return _bufsAmount;
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -45,8 +46,8 @@ namespace dci::module::net::utils
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     void RecvBuffer::flushTo(bytes::Alter&& dst)
     {
-        dst.write(_chunks[0], _chunks[_iovAmount-1], _totalSize);
-        allocate(_iovAmount);
+        dst.write(_chunks[0], _chunks[_bufsAmount-1], _totalSize);
+        allocate(_bufsAmount);
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -55,50 +56,50 @@ namespace dci::module::net::utils
         dbgAssert(size > 0);
         dbgAssert(size < _totalSize);
 
-        uint32 iovAmount = size / bytes::Chunk::bufferSize();
-        if(iovAmount * bytes::Chunk::bufferSize() < size)
+        uint32 bufsAmount = size / bytes::Chunk::bufferSize();
+        if(bufsAmount * bytes::Chunk::bufferSize() < size)
         {
-            _chunks[iovAmount]->setEnd(static_cast<uint16>(size - iovAmount * bytes::Chunk::bufferSize()));
-            iovAmount++;
+            _chunks[bufsAmount]->setEnd(static_cast<uint16>(size - bufsAmount * bytes::Chunk::bufferSize()));
+            bufsAmount++;
         }
-        _chunks[iovAmount-1]->setNext(nullptr);
-        dst.write(_chunks[0], _chunks[iovAmount-1], size);
+        _chunks[bufsAmount-1]->setNext(nullptr);
+        dst.write(_chunks[0], _chunks[bufsAmount-1], size);
 
-        allocate(iovAmount);
+        allocate(bufsAmount);
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void RecvBuffer::allocate(uint32 iovAmount)
+    void RecvBuffer::allocate(uint32 bufsAmount)
     {
-        dbgAssert(iovAmount);
+        dbgAssert(bufsAmount);
 
         bytes::Chunk* prev = nullptr;
 
         {
             bytes::Chunk *&cur = _chunks[0];
-            cur = new bytes::Chunk(nullptr, nullptr, 0, bytes::Chunk::bufferSize());
+            cur = new bytes::Chunk{nullptr, nullptr, 0, bytes::Chunk::bufferSize()};
 
-            _iov[0].iov_base = cur->data();
-            _iov[0].iov_len = bytes::Chunk::bufferSize();
+            _bufs[0].data() = reinterpret_cast<Buf::Data>(cur->data());
+            _bufs[0].len() = bytes::Chunk::bufferSize();
 
             prev = cur;
         }
 
-        for(uint32 i(1); i<iovAmount; ++i)
+        for(uint32 i(1); i<bufsAmount; ++i)
         {
             bytes::Chunk *&cur = _chunks[i];
-            cur = new bytes::Chunk(nullptr, prev, 0, bytes::Chunk::bufferSize());
+            cur = new bytes::Chunk{nullptr, prev, 0, bytes::Chunk::bufferSize()};
 
-            _iov[i].iov_base = cur->data();
-            _iov[i].iov_len = bytes::Chunk::bufferSize();
+            _bufs[i].data() = reinterpret_cast<Buf::Data>(cur->data());
+            _bufs[i].len() = bytes::Chunk::bufferSize();
 
             prev->setNext(cur);
             prev = cur;
         }
 
-        if(iovAmount < _iovAmount)
+        if(bufsAmount < _bufsAmount)
         {
-            bytes::Chunk *&cur = _chunks[iovAmount];
+            bytes::Chunk *&cur = _chunks[bufsAmount];
 
             prev->setNext(cur);
             cur->setPrev(prev);

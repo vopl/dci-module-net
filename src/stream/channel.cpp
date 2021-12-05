@@ -5,26 +5,28 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "channel.hpp"
 #include "../host.hpp"
 #include "../utils/sockaddr.hpp"
 #include "../utils/makeError.hpp"
+#include "dci/poll/descriptor/native.hpp"
 
 namespace dci::module::net::stream
 {
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    Channel::Channel(Host* host, int sock, const api::Endpoint& localEndpoint, api::Endpoint&& remoteEndpoint)
+    Channel::Channel(Host* host, poll::descriptor::Native sock, const api::Endpoint& localEndpoint, api::Endpoint&& remoteEndpoint)
         : api::stream::Channel<>::Opposite(idl::interface::Initializer())
         , _host{host}
         , _sock{sock}
         , _localEndpoint{localEndpoint}
         , _remoteEndpoint{std::move(remoteEndpoint)}
         , _connectPromise{cmt::PromiseNullInitializer{}}
-        , _connected{-1 != _sock}
+        , _connected{_sock.valid()}
     {
         if(_connected)
         {
-            _sock.onAct() += _sockActOwner * [this](int fd, std::uint_fast32_t readyState){connectedSockReady(fd, readyState);};
+            _sock.ready() += _sockReadyOwner * [this](poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState){connectedSockReady(native, readyState);};
         }
 
         _host->track(this);
@@ -65,9 +67,9 @@ namespace dci::module::net::stream
             }
 
             _sendBuffer.push(std::forward<decltype(bytes)>(bytes));
-            if(poll::Descriptor::rsf_write & _lastReadyState)
+            if(poll::descriptor::rsf_write & _lastReadyState)
             {
-                doWrite(_sock.fd());
+                doWrite(_sock.native());
             }
         };
 
@@ -110,17 +112,18 @@ namespace dci::module::net::stream
         dbgAssert(!_sock.valid());
         dbgAssert(!_connectPromise.charged());
 
-        int sock = ::socket(
-                       utils::sockaddr::family(_remoteEndpoint),
-                       SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC,
-                       0);
+#ifdef _WIN32
+        dci::poll::descriptor::Native native = ::WSASocketW(utils::sockaddr::family(_remoteEndpoint), SOCK_STREAM, PF_UNSPEC, nullptr, 0, WSA_FLAG_NO_HANDLE_INHERIT);
+#else
+        dci::poll::descriptor::Native native = ::socket(utils::sockaddr::family(_remoteEndpoint), SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0);
+#endif
 
-        if(-1 == sock)
+        if(native._bad == native._value)
         {
             return utils::fetchSystemError<api::stream::Channel<>>();
         }
 
-        std::error_code ec = _sock.attach(sock);
+        std::error_code ec = _sock.attach(native);
         if(ec)
         {
             return utils::makeError<api::stream::Channel<>>(ec);
@@ -141,7 +144,7 @@ namespace dci::module::net::stream
             } saddr;
 
             socklen_t saddrLen = utils::sockaddr::convert(_localEndpoint, &saddr._base);
-            if(::bind(sock, &saddr._base, saddrLen))
+            if(::bind(native, &saddr._base, saddrLen))
             {
                 return utils::fetchSystemError<api::stream::Channel<>>();
             }
@@ -154,17 +157,22 @@ namespace dci::module::net::stream
         } saddr;
 
         socklen_t saddrLen = utils::sockaddr::convert(_remoteEndpoint, &saddr._base);
-        int res = ::connect(sock, &saddr._base, saddrLen);
+        int res = ::connect(native, &saddr._base, saddrLen);
 
         if(!res)
         {
             _connected = true;
-            _sockActOwner.flush();
-            _sock.onAct() += _sockActOwner * [this](int fd, std::uint_fast32_t readyState){connectedSockReady(fd, readyState);};
+            _sockReadyOwner.flush();
+            _sock.ready() += _sockReadyOwner * [this](poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState){connectedSockReady(native, readyState);};
             return cmt::readyFuture(api::stream::Channel<>(*this));
         }
 
-        if(EINPROGRESS != errno)
+#ifdef _WIN32
+        bool failed = WSAEWOULDBLOCK != WSAGetLastError();
+#else
+        bool failed = EINPROGRESS != errno;
+#endif
+        if(failed)
         {
             return utils::fetchSystemError<api::stream::Channel<>>();
         }
@@ -174,12 +182,12 @@ namespace dci::module::net::stream
         _connectPromise.canceled() += [this]
         {
             _connectPromise.uncharge();
-            _sockActOwner.flush();
+            _sockReadyOwner.flush();
             _sock.close();
         };
 
-        _sockActOwner.flush();
-        _sock.onAct() += _sockActOwner * [this](int fd, std::uint_fast32_t readyState){connectSockReady(fd, readyState);};
+        _sockReadyOwner.flush();
+        _sock.ready() += _sockReadyOwner * [this](poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState){connectSockReady(native, readyState);};
         return _connectPromise.future();
     }
 
@@ -187,7 +195,7 @@ namespace dci::module::net::stream
     Channel::~Channel()
     {
         sbs::Owner::flush();
-        _sockActOwner.flush();
+        _sockReadyOwner.flush();
         _sock.close();
         _host->untrack(this);
     }
@@ -211,9 +219,9 @@ namespace dci::module::net::stream
                 _connectPromise.resolveException(e);
             }
 
-            if(!(poll::Descriptor::rsf_close & _lastReadyState))
+            if(!(poll::descriptor::rsf_close & _lastReadyState))
             {
-                _sockActOwner.flush();
+                _sockReadyOwner.flush();
                 _sock.close();
             }
 
@@ -236,9 +244,9 @@ namespace dci::module::net::stream
             _connectPromise.resolveCancel();
         }
 
-        if(!(poll::Descriptor::rsf_close & _lastReadyState))
+        if(!(poll::descriptor::rsf_close & _lastReadyState))
         {
-            _sockActOwner.flush();
+            _sockReadyOwner.flush();
             _sock.close();
         }
 
@@ -252,10 +260,10 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    bool Channel::doWrite(int fd)
+    bool Channel::doWrite(poll::descriptor::Native native)
     {
-        dbgAssert(_sock.fd() == fd);
-        dbgAssert(_lastReadyState & poll::Descriptor::rsf_write);
+        dbgAssert(_sock.native() == native);
+        dbgAssert(_lastReadyState & poll::descriptor::rsf_write);
 
         if(_sendBuffer.empty())
         {
@@ -266,14 +274,35 @@ namespace dci::module::net::stream
 
         while(!_sendBuffer.empty())
         {
-            msghdr msg = {nullptr, 0, _sendBuffer.iov(), _sendBuffer.iovAmount(), nullptr, 0, 0};
-            ssize_t res = ::sendmsg(fd, &msg, MSG_NOSIGNAL);
+#ifdef _WIN32
+            DWORD sent{};
+            ssize_t res = ::WSASend(native, _sendBuffer.bufs(), _sendBuffer.bufsAmount(), &sent, 0, nullptr, nullptr);
+            if(!res)
+            {
+                res = sent;
+            }
+#else
+            msghdr msg = {nullptr, 0, _sendBuffer.bufs(), _sendBuffer.bufsAmount(), nullptr, 0, 0};
+            ssize_t res = ::sendmsg(native, &msg, MSG_NOSIGNAL);
+#endif
 
             if(0 > res)
             {
-                _lastReadyState &= ~poll::Descriptor::rsf_write;
-                failed(utils::fetchSystemError(), true);
-                return false;
+                _lastReadyState &= ~poll::descriptor::rsf_write;
+
+#ifdef _WIN32
+                DWORD lastError = WSAGetLastError();
+                bool notReady = (WSATRY_AGAIN == lastError) || (WSAEWOULDBLOCK == lastError);
+#else
+                bool notReady = EAGAIN == errno;
+#endif
+                if(!notReady)
+                {
+                    failed(utils::fetchSystemError(), true);
+                    return false;
+                }
+
+                return true;
             }
 
             uint32 wrote = static_cast<uint32>(res);
@@ -283,15 +312,15 @@ namespace dci::module::net::stream
             {
                 break;
             }
-            else if(static_cast<uint32>(res) < _sendBuffer.iovSize())
+            else if(static_cast<uint32>(res) < _sendBuffer.bufsSize())
             {
-                _lastReadyState &= ~poll::Descriptor::rsf_write;
+                _lastReadyState &= ~poll::descriptor::rsf_write;
                 _sendBuffer.flush(wrote);
                 break;
             }
             else
             {
-                dbgAssert(wrote == _sendBuffer.iovSize());
+                dbgAssert(wrote == _sendBuffer.bufsSize());
                 _sendBuffer.flush(wrote);
             }
         }
@@ -306,12 +335,12 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    bool Channel::doRead(int fd)
+    bool Channel::doRead(poll::descriptor::Native native)
     {
-        dbgAssert(_sock.fd() == fd);
-        dbgAssert(_lastReadyState & poll::Descriptor::rsf_read);
+        dbgAssert(_sock.native() == native);
+        dbgAssert(_lastReadyState & poll::descriptor::rsf_read);
 
-        _lastReadyState &= ~poll::Descriptor::rsf_read;
+        _lastReadyState &= ~poll::descriptor::rsf_read;
 
         uint32 totalReaded = 0;
         Bytes data;
@@ -319,13 +348,33 @@ namespace dci::module::net::stream
 
         for(;;)
         {
-            ssize_t res = ::readv(fd, recvBuffer->iov(), static_cast<int>(recvBuffer->iovAmount()));
+#ifdef _WIN32
+            DWORD received{};
+            DWORD flags{};
+            ssize_t res = ::WSARecv(native, recvBuffer->bufs(), recvBuffer->bufsAmount(), &received, &flags, nullptr, nullptr);
+            if(!res)
+            {
+                res = received;
+            }
+#else
+            ssize_t res = ::readv(native, recvBuffer->bufs(), static_cast<int>(recvBuffer->bufsAmount()));
+#endif
 
             if(0 > res)
             {
-                if(EAGAIN == errno)
+#ifdef _WIN32
+                DWORD lastError = WSAGetLastError();
+                bool notReady = (WSATRY_AGAIN == lastError) || (WSAEWOULDBLOCK == lastError);
+#else
+                bool notReady = EAGAIN == errno;
+#endif
+                if(notReady)
                 {
-                    //no more data
+                    if(!totalReaded)
+                    {
+                        return true;
+                    }
+
                     break;
                 }
 
@@ -375,7 +424,7 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void Channel::connectSockReady(int /*fd*/, std::uint_fast32_t readyState)
+    void Channel::connectSockReady(poll::descriptor::Native /*native*/, poll::descriptor::ReadyStateFlags readyState)
     {
         dbgAssert(!_connected);
 
@@ -384,31 +433,31 @@ namespace dci::module::net::stream
 
         auto connectPromise = std::exchange(_connectPromise, cmt::Promise<api::stream::Channel<>>(cmt::PromiseNullInitializer()));
 
-        if(poll::Descriptor::rsf_error & readyState)
+        if(poll::descriptor::rsf_error & readyState)
         {
             std::error_code ec = _sock.error();
-            _sockActOwner.flush();
+            _sockReadyOwner.flush();
             _sock.close();
 
             connectPromise.resolveException(utils::makeError(ec));
             return;
         }
 
-        if((poll::Descriptor::rsf_eof|poll::Descriptor::rsf_close) & readyState)
+        if((poll::descriptor::rsf_eof|poll::descriptor::rsf_close) & readyState)
         {
-            _sockActOwner.flush();
+            _sockReadyOwner.flush();
             _sock.close();
 
-            connectPromise.resolveCancel();
+            connectPromise.resolveException(exception::buildInstance<api::ConnectionClosed>());
             return;
         }
 
-        if((poll::Descriptor::rsf_read|poll::Descriptor::rsf_write) & readyState)
+        if((poll::descriptor::rsf_read|poll::descriptor::rsf_write) & readyState)
         {
             _connected = true;
             _lastReadyState |= readyState;
-            _sockActOwner.flush();
-            _sock.onAct() += _sockActOwner * [this](int fd, std::uint_fast32_t readyState){connectedSockReady(fd, readyState);};
+            _sockReadyOwner.flush();
+            _sock.ready() += _sockReadyOwner * [this](poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState){connectedSockReady(native, readyState);};
 
             connectPromise.resolveValue(api::stream::Channel<>(*this));
             return;
@@ -418,15 +467,15 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void Channel::connectedSockReady(int fd, std::uint_fast32_t readyState)
+    void Channel::connectedSockReady(poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState)
     {
         dbgAssert(_connected);
 
         _lastReadyState |= readyState;
 
-        if(poll::Descriptor::rsf_error & _lastReadyState)
+        if(poll::descriptor::rsf_error & _lastReadyState)
         {
-            _lastReadyState = 0;
+            _lastReadyState = {};
 
             std::error_code ec = _sock.error();
             if(ec)
@@ -441,25 +490,25 @@ namespace dci::module::net::stream
             return;
         }
 
-        if(poll::Descriptor::rsf_eof & _lastReadyState)
+        if(poll::descriptor::rsf_eof & _lastReadyState)
         {
-            _lastReadyState = 0;
+            _lastReadyState = {};
 
             close();
             return;
         }
 
-        if(poll::Descriptor::rsf_write & _lastReadyState)
+        if(poll::descriptor::rsf_write & _lastReadyState)
         {
-            if(!doWrite(fd))
+            if(!doWrite(native))
             {
                 return;
             }
         }
 
-        if(poll::Descriptor::rsf_read & _lastReadyState)
+        if(poll::descriptor::rsf_read & _lastReadyState)
         {
-            doRead(fd);
+            doRead(native);
         }
     }
 }

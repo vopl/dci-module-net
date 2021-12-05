@@ -8,11 +8,12 @@
 #include "rtnetlink.hpp"
 #include "../links.hpp"
 #include "../routes.hpp"
+#include "dci/poll/descriptor/native.hpp"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wcast-align"
 
-namespace dci::module::net::engine
+namespace dci::module::net::enumerator
 {
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     Rtnetlink::Rtnetlink(Links* links, Routes* routes)
@@ -22,10 +23,10 @@ namespace dci::module::net::engine
         //socket
         dbgAssert(!_sock);
         _sock.reset(new poll::Descriptor{
-                        socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE),
-                        [this](int fd, std::uint_fast32_t readyState)
+                        poll::descriptor::Native{socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE)},
+                        [this](poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState)
                         {
-                            onSock(fd, readyState);
+                            onSock(native, readyState);
                         }});
         if(!_sock->valid())
         {
@@ -46,7 +47,7 @@ namespace dci::module::net::engine
                 | RTMGRP_IPV6_MROUTE | RTMGRP_IPV6_ROUTE
                              ;
 
-        if(0 != bind(*_sock, reinterpret_cast<sockaddr*>(&_address), sizeof(_address)))
+        if(0 != bind(_sock->native(), reinterpret_cast<sockaddr*>(&_address), sizeof(_address)))
         {
             LOGE("rtnetlink bind: "<<strerror(errno));
             _sock.reset();
@@ -147,7 +148,7 @@ namespace dci::module::net::engine
         msg.msg_namelen = sizeof(address);
 
         dbgAssert(_sock);
-        if(0 > sendmsg(*_sock, &msg, 0))
+        if(0 > sendmsg(_sock->native(), &msg, 0))
         {
             LOGE("rtnetlink send: "<<strerror(errno));
             return false;
@@ -222,6 +223,7 @@ namespace dci::module::net::engine
             {
                 address.netmask.octets[i/8] |= (1<<i%8);
             }
+            address.prefixLength = prefixlen;
 
             while(RTA_OK(rta, len))
             {
@@ -229,6 +231,7 @@ namespace dci::module::net::engine
                 {
                 case IFA_LOCAL:
                     memcpy(address.address.octets.data(), RTA_DATA(rta), 4);
+                    address.netmask.octets = dci::utils::net::ip::masked(address.address.octets, address.prefixLength);
                     break;
                 case IFA_BROADCAST:
                     memcpy(address.broadcast.octets.data(), RTA_DATA(rta), 4);
@@ -278,33 +281,11 @@ namespace dci::module::net::engine
             }
         }
 
-        api::Ip4Address mkMask4(uint8 bits)
-        {
-            api::Ip4Address res{};
-            bits = std::min(bits, uint8{32});
-
-            uint8 bytes = bits/8;
-            bits %= 8;
-
-            uint8 byte{0};
-            for(; byte<bytes; ++byte)
-            {
-                res.octets[byte] = 0xff;
-            }
-
-            if(bits)
-            {
-                res.octets[byte] = ((1 << bits) - 1) & 0xff;
-            }
-
-            return res;
-        }
-
         void fetchRta(rtattr* rta, uint32 len, const rtmsg& rt, api::route::Entry4& e4)
         {
             e4.dst.octets.fill(0);
-            e4.dstMask = mkMask4(rt.rtm_dst_len);
-            e4.gateway.octets.fill(0);
+            e4.dstPrefixLength = rt.rtm_dst_len;
+            e4.nextHop.octets.fill(0);
             e4.linkId = ~uint32{};
 
             while(RTA_OK(rta, len))
@@ -322,7 +303,7 @@ namespace dci::module::net::engine
                 case RTA_GATEWAY:
                     if(rtaLen <= 4)
                     {
-                        memcpy(e4.gateway.octets.data(), RTA_DATA(rta), rtaLen);
+                        memcpy(e4.nextHop.octets.data(), RTA_DATA(rta), rtaLen);
                     }
                     break;
                 case RTA_OIF:
@@ -376,15 +357,15 @@ namespace dci::module::net::engine
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void Rtnetlink::onSock(int fd, std::uint_fast32_t readyState)
+    void Rtnetlink::onSock(int fd, poll::descriptor::ReadyStateFlags readyState)
     {
-        if(poll::Descriptor::rsf_error & readyState)
+        if(poll::descriptor::rsf_error & readyState)
         {
             LOGE("rtnetlink poll: "<<_sock->error());
             return;
         }
 
-        if(!(poll::Descriptor::rsf_read & readyState))
+        if(!(poll::descriptor::rsf_read & readyState))
         {
             return;
         }

@@ -7,6 +7,7 @@
 
 #pragma once
 #include "pch.hpp"
+#include "../utils/sockaddr.hpp"
 #include <regex>
 
 namespace dci::module::net::ipResolver
@@ -14,14 +15,12 @@ namespace dci::module::net::ipResolver
     class Task
     {
     public:
-        Task(auto&& src);
         ~Task();
 
-        void doWorkInThread();
-
         template <class Value>
-        auto init();
+        cmt::Future<Value> init(auto&& src);
 
+        void doWorkInThread();
         void resolve();
 
     private:
@@ -29,12 +28,11 @@ namespace dci::module::net::ipResolver
         bool fetchEndpoint(Dst& dst, addrinfo* src);
 
     public:
-        Task*       _next {};
+        Task*       _next4Worker {};
 
     private:
-        String      _src;
         String      _host;
-        String      _port;
+        String      _service;
 
         addrinfo    _hint {};
         addrinfo *  _res {};
@@ -50,19 +48,20 @@ namespace dci::module::net::ipResolver
             cmt::Promise<List<api::Ip4Endpoint>>,
             cmt::Promise<List<api::Ip6Endpoint>>
         >;
-        PromiseVar _promiseVar;
-        std::atomic<bool> _canceled = false;
+        PromiseVar          _promiseVar;
+        std::atomic<bool>   _canceled = false;
+
+        poll::Awaker        _awaker;
+        sbs::Owner          _sol;
 
     private:
         static const std::regex _regexHostService4;
         static const std::regex _regexHostService6;
     };
 
-
-
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    inline Task::Task(auto&& src)
-        : _src(std::forward<decltype(src)>(src))
+    template <class Value>
+    cmt::Future<Value> Task::init(auto&& src)
     {
         /*
          * ip4
@@ -77,33 +76,23 @@ namespace dci::module::net::ipResolver
 
         {
             std::smatch match;
-            if(std::regex_match(_src, match, _regexHostService6))
+            if(std::regex_match(src, match, _regexHostService6))
             {
                 _host = match[1];
-                _port = match[2];
-
-                return;
+                _service = match[2];
+            }
+            else if(std::regex_match(src, match, _regexHostService4))
+            {
+                _host = match[1];
+                _service = match[2];
+            }
+            else
+            {
+                _host = std::forward<decltype(src)>(src);
             }
         }
 
-        {
-            std::smatch match;
-            if(std::regex_match(_src, match, _regexHostService4))
-            {
-                _host = match[1];
-                _port = match[2];
 
-                return;
-            }
-        }
-
-        _host = _src;
-    }
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    template <class Value>
-    auto Task::init()
-    {
         memset(&_hint, 0, sizeof(_hint));
         _hint.ai_flags = AI_ALL | AI_ADDRCONFIG;
 
@@ -122,138 +111,19 @@ namespace dci::module::net::ipResolver
 
         using Promise = cmt::Promise<Value>;
         Promise p;
-        p.canceled() += [&]
+        p.canceled() += _sol * [this]
         {
             _canceled.store(true, std::memory_order_release);
         };
 
-        auto f = p.future();
+        cmt::Future<Value> f = p.future();
         _promiseVar = std::move(p);
+
+        _awaker.woken() += _sol * [this]
+        {
+            resolve();
+        };
+
         return f;
-    }
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    template <>
-    inline bool Task::fetchEndpoint<api::Ip4Endpoint>(api::Ip4Endpoint& dst, addrinfo* src)
-    {
-        if(!src)
-        {
-            return false;
-        }
-
-        if(sizeof(sockaddr_in) == src->ai_addrlen && (PF_UNSPEC == src->ai_protocol || PF_INET == src->ai_protocol || (PF_PACKET == src->ai_protocol && AF_INET == src->ai_family)))
-        {
-            sockaddr_in* src4 = reinterpret_cast<sockaddr_in *>(src->ai_addr);
-            dst.port = ntohs(src4->sin_port);
-            memcpy(&dst.address.octets, &src4->sin_addr.s_addr, sizeof(dst.address.octets));
-            return true;
-        }
-
-        return fetchEndpoint(dst, src->ai_next);
-    }
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    template <>
-    inline bool Task::fetchEndpoint<api::Ip6Endpoint>(api::Ip6Endpoint& dst, addrinfo* src)
-    {
-        if(!src)
-        {
-            return false;
-        }
-
-        if(sizeof(sockaddr_in6) == src->ai_addrlen && (PF_UNSPEC == src->ai_protocol || PF_INET6 == src->ai_protocol || (PF_PACKET == src->ai_protocol && AF_INET6 == src->ai_family)))
-        {
-            sockaddr_in6* src6 = reinterpret_cast<sockaddr_in6 *>(src->ai_addr);
-            dst.port = ntohs(src6->sin6_port);
-            memcpy(&dst.address.octets, &src6->sin6_addr.s6_addr, sizeof(dst.address.octets));
-            dst.address.linkId = src6->sin6_scope_id;
-            return true;
-        }
-
-        return fetchEndpoint(dst, src->ai_next);
-    }
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    template <>
-    inline bool Task::fetchEndpoint<api::IpEndpoint>(api::IpEndpoint& dst, addrinfo* src)
-    {
-        api::Ip4Endpoint dst4;
-        if(fetchEndpoint(dst4, src))
-        {
-            dst = dst4;
-            return true;
-        }
-
-        api::Ip6Endpoint dst6;
-        if(fetchEndpoint(dst6, src))
-        {
-            dst = dst6;
-            return true;
-        }
-
-        return false;
-    }
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    template <>
-    inline bool Task::fetchEndpoint<List<api::Ip4Endpoint>>(List<api::Ip4Endpoint>& dst, addrinfo* src)
-    {
-        if(!src)
-        {
-            return false;
-        }
-
-        bool res = false;
-        if(sizeof(sockaddr_in) == src->ai_addrlen && (PF_UNSPEC == src->ai_protocol || PF_INET == src->ai_protocol || (PF_PACKET == src->ai_protocol && AF_INET == src->ai_family)))
-        {
-            sockaddr_in* src4 = reinterpret_cast<sockaddr_in *>(src->ai_addr);
-            api::Ip4Endpoint dst4;
-            dst4.port = ntohs(src4->sin_port);
-            memcpy(&dst4.address.octets, &src4->sin_addr.s_addr, sizeof(dst4.address.octets));
-            dst.push_back(dst4);
-            res = true;
-        }
-
-        return fetchEndpoint(dst, src->ai_next) || res;
-    }
-
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    template <>
-    inline bool Task::fetchEndpoint<List<api::Ip6Endpoint>>(List<api::Ip6Endpoint>& dst, addrinfo* src)
-    {
-        if(!src)
-        {
-            return false;
-        }
-
-        bool res = false;
-        if(sizeof(sockaddr_in6) == src->ai_addrlen && (PF_UNSPEC == src->ai_protocol || PF_INET6 == src->ai_protocol || (PF_PACKET == src->ai_protocol && AF_INET6 == src->ai_family)))
-        {
-            sockaddr_in6* src6 = reinterpret_cast<sockaddr_in6 *>(src->ai_addr);
-            api::Ip6Endpoint dst6;
-            dst6.port = ntohs(src6->sin6_port);
-            memcpy(&dst6.address.octets, &src6->sin6_addr.s6_addr, sizeof(dst6.address.octets));
-            dst.push_back(dst6);
-            res = true;
-        }
-
-        return fetchEndpoint(dst, src->ai_next) || res;
-    }
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    template <>
-    inline bool Task::fetchEndpoint<List<api::IpEndpoint>>(List<api::IpEndpoint>& dst, addrinfo* src)
-    {
-        List<api::Ip4Endpoint> dst4;
-        List<api::Ip6Endpoint> dst6;
-
-        fetchEndpoint(dst4, src);
-        fetchEndpoint(dst6, src);
-
-        for(auto& a : dst4) dst.push_back(a);
-        for(auto& a : dst6) dst.push_back(a);
-
-        return true;
     }
 }

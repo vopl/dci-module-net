@@ -5,6 +5,7 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "ipResolver.hpp"
 
 namespace dci::module::net
@@ -14,14 +15,6 @@ namespace dci::module::net
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     IpResolver::IpResolver(api::Host<>::Opposite* iface)
         : _iface(iface)
-        , _notifier4Owner{
-              eventfd(1, EFD_NONBLOCK|EFD_CLOEXEC),
-              [this](int fd, std::uint_fast32_t /*readyState*/){
-                eventfd_t value;
-                eventfd_read(fd, &value);
-                wakeOwner();
-              },
-              nullptr}
     {
         _workers.emplace_back(std::thread(&IpResolver::workerProc, this));
 
@@ -74,14 +67,12 @@ namespace dci::module::net
         }
         _workers.clear();
 
-        wakeOwner();
-        dbgAssert(!_tasks4Owner);
-
-        _tasks4Owner = _tasks4Worker;
-        _tasks4Worker = nullptr;
-
-        wakeOwner();
-        dbgAssert(!_tasks4Owner);
+        if(_tasks4Worker)
+        {
+            ipResolver::Task* t = _tasks4Worker;
+            _tasks4Worker = std::exchange(t->_next4Worker, {});
+            t->resolve();
+        }
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -98,50 +89,16 @@ namespace dci::module::net
             if(_tasks4Worker)
             {
                 ipResolver::Task* t = _tasks4Worker;
-                _tasks4Worker = t->_next;
+                _tasks4Worker = std::exchange(t->_next4Worker, {});
 
                 l.unlock();
                 t->doWorkInThread();
                 l.lock();
-
-                t->_next = _tasks4Owner;
-                _tasks4Owner = t;
-                eventfd_write(_notifier4Owner, 1);
             }
             else
             {
                 _notifier4Worker.wait(l);
             }
-        }
-    }
-
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void IpResolver::wakeOwnerCb(void* cbData, int fd, std::uint_fast32_t /*readyState*/)
-    {
-        eventfd_t value;
-        eventfd_read(fd, &value);
-
-        static_cast<IpResolver*>(cbData)->wakeOwner();
-    }
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void IpResolver::wakeOwner()
-    {
-        Task* t;
-        {
-            std::unique_lock l(_mtx);
-
-            t = _tasks4Owner;
-            _tasks4Owner = nullptr;
-        }
-
-        while(t)
-        {
-            Task* next = t->_next;
-            t->resolve();
-            delete t;
-            t = next;
         }
     }
 }

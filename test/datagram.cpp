@@ -25,89 +25,88 @@ namespace
     }
 }
 
-
-
 /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-TEST(module_net, datagram)
+TEST(module_net, datagram_ping_pong)
 {
     Manager* manager = testManager();
     Host<> netHost = manager->createService<Host<>>().value();
 
-    //ping-pong
+    datagram::Channel<> ch1 = netHost->datagramChannel().value();
+    datagram::Channel<> ch2 = netHost->datagramChannel().value();
+
+    Ip4Endpoint ep1{{127,0,0,1}, 1818};
+    Ip4Endpoint ep2{{127,0,0,1}, 1819};
+
+    EXPECT_NO_THROW((ch1->bind(ep1).value()));
+    EXPECT_NO_THROW((ch2->bind(ep2).value()));
+
+    int cnt1 = 0;
+    int cnt2 = 0;
+
+    ch1->received() += [&](Bytes data, Endpoint from)
     {
-        datagram::Channel<> ch1 = netHost->datagramChannel().value();
-        datagram::Channel<> ch2 = netHost->datagramChannel().value();
+        EXPECT_EQ(1u, from.index());
+        EXPECT_EQ(1819u, from.get<Ip4Endpoint>().port);
+        EXPECT_EQ((Array<uint8, 4>{127,0,0,1}), from.get<Ip4Endpoint>().address.octets);
 
-        Ip4Endpoint ep1{{127,0,0,1}, 1818};
-        Ip4Endpoint ep2{{127,0,0,1}, 1819};
+        EXPECT_EQ(data.toString(), "for ch1");
 
-        EXPECT_NO_THROW((ch1->bind(ep1).value()));
-        EXPECT_NO_THROW((ch2->bind(ep2).value()));
-
-        int cnt1 = 0;
-        int cnt2 = 0;
-
-        ch1->received() += [&](Bytes data, Endpoint from)
-        {
-            EXPECT_EQ(1u, from.index());
-            EXPECT_EQ(1819u, from.get<Ip4Endpoint>().port);
-            EXPECT_EQ((Array<uint8, 4>{127,0,0,1}), from.get<Ip4Endpoint>().address.octets);
-
-            EXPECT_EQ(data.toString(), "for ch1");
-
-            cnt1++;
-            ch1->send(Bytes("for ch2"), ep2);
-        };
-
-        ch2->received() += [&](Bytes data, Endpoint from)
-        {
-            EXPECT_EQ(1u, from.index());
-            EXPECT_EQ(1818u, from.get<Ip4Endpoint>().port);
-            EXPECT_EQ((Array<uint8, 4>{127,0,0,1}), from.get<Ip4Endpoint>().address.octets);
-
-            EXPECT_EQ(data.toString(), "for ch2");
-
-            cnt2++;
-            ch2->send(Bytes("for ch1"), ep1);
-        };
-
+        cnt1++;
         ch1->send(Bytes("for ch2"), ep2);
-        ch2->send(Bytes("for ch1"), ep1);
+    };
 
-        while(cnt1<10 && cnt2<10)
-        {
-            sleep(1);
-        }
-    }
-
-    //large message
+    ch2->received() += [&](Bytes data, Endpoint from)
     {
-        datagram::Channel<> ch1 = netHost->datagramChannel().value();
-        datagram::Channel<> ch2 = netHost->datagramChannel().value();
+        EXPECT_EQ(1u, from.index());
+        EXPECT_EQ(1818u, from.get<Ip4Endpoint>().port);
+        EXPECT_EQ((Array<uint8, 4>{127,0,0,1}), from.get<Ip4Endpoint>().address.octets);
 
-        Ip4Endpoint ep1{{127,0,0,1}, 1818};
-        Ip4Endpoint ep2{{127,0,0,1}, 1819};
+        EXPECT_EQ(data.toString(), "for ch2");
 
-        EXPECT_NO_THROW((ch1->bind(ep1).value()));
-        EXPECT_NO_THROW((ch2->bind(ep2).value()));
+        cnt2++;
+        ch2->send(Bytes("for ch1"), ep1);
+    };
 
-        int cnt = 0;
+    ch1->send(Bytes("for ch2"), ep2);
+    ch2->send(Bytes("for ch1"), ep1);
 
-        ch1->received() += [&](Bytes data, Endpoint /*from*/)
-        {
-            EXPECT_EQ(data.size(), 1024u*37);
-            cnt++;
-        };
-
-        Bytes data;
-        data.begin().advance(1024*37);
-        ch2->send(data, ep1);
-
-        for(int i(0); i<100 && !cnt; ++i)
-        {
-            sleep(1);
-        }
-
-        EXPECT_EQ(1, cnt);
+    while(cnt1<10 && cnt2<10)
+    {
+        sleep(1);
     }
+}
+
+/////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+TEST(module_net, datagram_large_message)
+{
+    Manager* manager = testManager();
+    Host<> netHost = manager->createService<Host<>>().value();
+
+    datagram::Channel<> ch1 = netHost->datagramChannel().value();
+    datagram::Channel<> ch2 = netHost->datagramChannel().value();
+
+    Ip4Endpoint ep1{{127,0,0,1}, 1818};
+    Ip4Endpoint ep2{{127,0,0,1}, 1819};
+
+    EXPECT_NO_THROW((ch1->bind(ep1).value()));
+    EXPECT_NO_THROW((ch2->bind(ep2).value()));
+
+    int cnt = 0;
+
+    ch1->received() += [&](Bytes data, Endpoint /*from*/)
+    {
+        EXPECT_EQ(data.size(), 1024u*37);
+        cnt++;
+    };
+
+    Bytes data;
+    data.begin().advance(1024*37);
+    ch2->send(data, ep1);
+
+    for(int i(0); i<100 && !cnt; ++i)
+    {
+        sleep(1);
+    }
+
+    EXPECT_EQ(1, cnt);
 }

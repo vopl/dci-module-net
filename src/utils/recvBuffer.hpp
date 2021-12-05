@@ -19,8 +19,8 @@ namespace dci::module::net::utils
         RecvBuffer();
         ~RecvBuffer();
 
-        iovec* iov();
-        uint32 iovAmount();
+        Buf* bufs();
+        uint32 bufsAmount();
 
         uint32 totalSize();
 
@@ -28,14 +28,14 @@ namespace dci::module::net::utils
         void flushTo(bytes::Alter&& dst, uint32 size);
 
     private:
-        void allocate(uint32 iovAmount);
+        void allocate(uint32 bufsAmount);
 
     private:
-        static constexpr uint32 _iovAmount = UIO_MAXIOV;
-        static constexpr uint32 _totalSize = _iovAmount * bytes::Chunk::bufferSize();
+        static constexpr uint32 _bufsAmount = Buf::_maxBufs;
+        static constexpr uint32 _totalSize = _bufsAmount * bytes::Chunk::bufferSize();
 
     private:
-        bytes::Chunk *  _chunks[_iovAmount];
-        iovec           _iov[_iovAmount];
+        bytes::Chunk*   _chunks[_bufsAmount];
+        Buf             _bufs[_bufsAmount];
     };
 }
