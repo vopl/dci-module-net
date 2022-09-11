@@ -26,7 +26,7 @@ namespace dci::module::net
             ~Server();
 
         private:
-            cmt::Future<void> listen(auto&& endpoint);
+            cmt::Future<None> listen(auto&& endpoint);
             void close();
             void sockReady(poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState);
 

@@ -38,14 +38,14 @@ namespace dci::module::net::stream
                 ExceptionPtr e = applyOption(_sock, op);
                 if(e)
                 {
-                    return cmt::readyFuture<void>(e);
+                    return cmt::readyFuture<None>(e);
                 }
 
-                return cmt::readyFuture();
+                return cmt::readyFuture(None{});
             }
 
             pushOption(op);
-            return cmt::readyFuture();
+            return cmt::readyFuture(None{});
         };
 
         methods()->localEndpoint() += this * [&]()

@@ -12,8 +12,8 @@ scope net::datagram
 {
     interface Channel
     {
-        in  setOption       (Option)            -> void;
-        in  bind            (Endpoint)          -> void;
+        in  setOption       (Option)            -> none;
+        in  bind            (Endpoint)          -> none;
 
         in  localEndpoint   ()                  -> Endpoint;
 

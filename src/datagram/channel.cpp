@@ -30,14 +30,14 @@ namespace dci::module::net::datagram
                 ExceptionPtr e = applyOption(_sock, op);
                 if(e)
                 {
-                    return cmt::readyFuture<void>(e);
+                    return cmt::readyFuture<None>(e);
                 }
 
-                return cmt::readyFuture();
+                return cmt::readyFuture(None{});
             }
 
             pushOption(op);
-            return cmt::readyFuture();
+            return cmt::readyFuture(None{});
         };
 
         methods()->bind() += this * [&](const api::Endpoint& ep)
@@ -47,10 +47,10 @@ namespace dci::module::net::datagram
             ExceptionPtr e = open(&ep);
             if(e)
             {
-                return cmt::readyFuture<void>(e);
+                return cmt::readyFuture<None>(e);
             }
 
-            return cmt::readyFuture<void>();
+            return cmt::readyFuture(None{});
         };
 
         methods()->localEndpoint() += this * [&]()

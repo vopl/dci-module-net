@@ -29,14 +29,14 @@ namespace dci::module::net::stream
                 ExceptionPtr e = applyOption(_sock.native(), op);
                 if(e)
                 {
-                    return cmt::readyFuture<void>(e);
+                    return cmt::readyFuture<None>(e);
                 }
 
-                return cmt::readyFuture();
+                return cmt::readyFuture(None{});
             }
 
             pushOption(op);
-            return cmt::readyFuture();
+            return cmt::readyFuture(None{});
         };
 
         methods()->listen() += this * [&](auto&& endpoint)
@@ -63,7 +63,7 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    cmt::Future<void> Server::listen(auto&& endpoint)
+    cmt::Future<None> Server::listen(auto&& endpoint)
     {
         close();
 
@@ -85,19 +85,19 @@ namespace dci::module::net::stream
 
         if(native._bad == native._value)
         {
-            return utils::fetchSystemError<void>();
+            return utils::fetchSystemError<None>();
         }
 
         std::error_code ec = _sock.attach(native);
         if(ec)
         {
-            return utils::makeError<void>(ec);
+            return utils::makeError<None>(ec);
         }
 
         ExceptionPtr e = applyOptions(_sock.native());
         if(e)
         {
-            return cmt::readyFuture<void>(e);
+            return cmt::readyFuture<None>(e);
         }
 
         if(AF_UNIX == saddr._base.sa_family)
@@ -107,22 +107,22 @@ namespace dci::module::net::stream
 
         if(::bind(native, &saddr._base, saddrLen))
         {
-            return utils::fetchSystemError<void>();
+            return utils::fetchSystemError<None>();
         }
 
         saddrLen = sizeof(saddr);
         if(::getsockname(native, &saddr._base, &saddrLen))
         {
-            return utils::fetchSystemError<void>();
+            return utils::fetchSystemError<None>();
         }
         utils::sockaddr::convert(&saddr._base, saddrLen, _localEndpoint);
 
         if(::listen(native, 5))
         {
-            return utils::fetchSystemError<void>();
+            return utils::fetchSystemError<None>();
         }
 
-        return cmt::readyFuture<void>();
+        return cmt::readyFuture(None{});
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7

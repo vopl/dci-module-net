@@ -12,8 +12,8 @@ scope net::stream
 {
     interface Server
     {
-        in  setOption       (Option)    -> void;
-        in  listen          (Endpoint)  -> void;
+        in  setOption       (Option)    -> none;
+        in  listen          (Endpoint)  -> none;
 
         in  localEndpoint   ()          -> Endpoint;
 

@@ -21,14 +21,14 @@ namespace dci::module::net::stream
         methods()->setOption() += this * [&](const api::Option& op)
         {
             pushOption(op);
-            return cmt::readyFuture();
+            return cmt::readyFuture(None{});
         };
 
         methods()->bind() += this * [this](auto&& endpoint)
         {
             _bindEndpoint = std::forward<decltype(endpoint)>(endpoint);
             _binded = true;
-            return cmt::readyFuture<void>();
+            return cmt::readyFuture(None{});
         };
 
         methods()->connect() += this * [this](auto&& endpoint)

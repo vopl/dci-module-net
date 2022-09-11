@@ -12,7 +12,7 @@ scope net::stream
 {
     interface Channel
     {
-        in  setOption       (Option)    -> void;
+        in  setOption       (Option)    -> none;
 
         in  localEndpoint   ()          -> Endpoint;
         in  remoteEndpoint  ()          -> Endpoint;

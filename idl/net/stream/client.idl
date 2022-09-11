@@ -12,8 +12,8 @@ scope net::stream
 {
     interface Client
     {
-        in setOption    (Option)    -> void;
-        in bind         (Endpoint)  -> void;
+        in setOption    (Option)    -> none;
+        in bind         (Endpoint)  -> none;
         in connect      (Endpoint)  -> Channel;
     }
 }
