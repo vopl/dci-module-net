@@ -5,6 +5,7 @@
    of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
    You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. */
 
+#include "pch.hpp"
 #include "rtnetlink.hpp"
 #include "../links.hpp"
 #include "../routes.hpp"
@@ -231,7 +232,7 @@ namespace dci::module::net::enumerator
                 {
                 case IFA_LOCAL:
                     memcpy(address.address.octets.data(), RTA_DATA(rta), 4);
-                    address.netmask.octets = dci::utils::net::ip::masked(address.address.octets, address.prefixLength);
+                    address.netmask.octets = dci::utils::ip::masked(address.address.octets, address.prefixLength);
                     break;
                 case IFA_BROADCAST:
                     memcpy(address.broadcast.octets.data(), RTA_DATA(rta), 4);

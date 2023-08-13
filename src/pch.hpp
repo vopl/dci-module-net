@@ -14,7 +14,8 @@
 #include <dci/host/exception.hpp>
 #include <dci/utils/atScopeExit.hpp>
 #include <dci/utils/win32/error.hpp>
-#include <dci/utils/net/ip.hpp>
+#include <dci/utils/ip.hpp>
+#include <dci/utils/overloaded.hpp>
 #include "net.hpp"
 
 #include <memory>

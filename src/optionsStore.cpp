@@ -15,9 +15,6 @@ namespace dci::module::net
 
     namespace
     {
-        template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-        template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
-
 #ifdef _WIN32
         constexpr const char* setsockopt_cast(auto* ptr)
         {
@@ -34,7 +31,7 @@ namespace dci::module::net
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     ExceptionPtr OptionsStore::applyOption(poll::descriptor::Native native, const api::Option& op)
     {
-        return op.visit(overloaded
+        return op.visit(dci::utils::overloaded
         {
             [&](const api::option::Broadcast& op)
             {

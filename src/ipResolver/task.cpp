@@ -83,18 +83,22 @@ namespace dci::module::net::ipResolver
     template <>
     bool Task::fetchEndpoint<api::IpEndpoint>(api::IpEndpoint& dst, addrinfo* src)
     {
-        api::Ip4Endpoint dst4;
-        if(fetchEndpoint(dst4, src))
         {
-            dst = dst4;
-            return true;
+            api::Ip4Endpoint tmp;
+            if(fetchEndpoint(tmp, src))
+            {
+                dst = tmp;
+                return true;
+            }
         }
 
-        api::Ip6Endpoint dst6;
-        if(fetchEndpoint(dst6, src))
         {
-            dst = dst6;
-            return true;
+            api::Ip6Endpoint tmp;
+            if(fetchEndpoint(tmp, src))
+            {
+                dst = tmp;
+                return true;
+            }
         }
 
         return false;
@@ -109,11 +113,15 @@ namespace dci::module::net::ipResolver
             return false;
         }
 
-        api::Ip4Endpoint dst4;
-        if(utils::sockaddr::convert(src->ai_addr, src->ai_addrlen, dst4))
         {
-            fetchEndpoint(dst, src->ai_next);
-            return true;
+            api::Ip4Endpoint tmp;
+            if(utils::sockaddr::convert(src->ai_addr, src->ai_addrlen, tmp))
+            {
+                if(dst.end() == std::find(dst.begin(), dst.end(), tmp))
+                    dst.emplace_back(tmp);
+                fetchEndpoint(dst, src->ai_next);
+                return true;
+            }
         }
 
         return fetchEndpoint(dst, src->ai_next);
@@ -129,11 +137,15 @@ namespace dci::module::net::ipResolver
             return false;
         }
 
-        api::Ip6Endpoint dst6;
-        if(utils::sockaddr::convert(src->ai_addr, src->ai_addrlen, dst6))
         {
-            fetchEndpoint(dst, src->ai_next);
-            return true;
+            api::Ip6Endpoint tmp;
+            if(utils::sockaddr::convert(src->ai_addr, src->ai_addrlen, tmp))
+            {
+                if(dst.end() == std::find(dst.begin(), dst.end(), tmp))
+                    dst.emplace_back(tmp);
+                fetchEndpoint(dst, src->ai_next);
+                return true;
+            }
         }
 
         return fetchEndpoint(dst, src->ai_next);
