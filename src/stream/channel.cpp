@@ -85,13 +85,11 @@ namespace dci::module::net::stream
             {
                 _receiveStarted = true;
 
-                if(!_receivedData.empty())
+                if(poll::descriptor::rsf_read & _lastReadyState)
                 {
-                    methods()->received(std::move(_receivedData));
+                    doRead(_sock.native());
                 }
             }
-
-            dbgAssert(_receivedData.empty());
         };
 
         methods()->stopReceive() += this * [&]()
@@ -250,6 +248,8 @@ namespace dci::module::net::stream
             _sock.close();
         }
 
+        _lastReadyState |= poll::descriptor::rsf_eof;
+
         _sendBuffer.clear();
 
         if(_connected)
@@ -294,9 +294,9 @@ namespace dci::module::net::stream
                 DWORD lastError = WSAGetLastError();
                 bool notReady = (WSATRY_AGAIN == lastError) || (WSAEWOULDBLOCK == lastError);
 #else
-                bool notReady = EAGAIN == errno;
+                bool noSpaceInSocketYet = EAGAIN == errno;
 #endif
-                if(!notReady)
+                if(!noSpaceInSocketYet)
                 {
                     failed(utils::fetchSystemError(), true);
                     return false;
@@ -305,23 +305,21 @@ namespace dci::module::net::stream
                 return true;
             }
 
-            uint32 wrote = static_cast<uint32>(res);
-            totalWrote += wrote;
-
             if(0 == res)
             {
                 break;
             }
-            else if(static_cast<uint32>(res) < _sendBuffer.bufsSize())
+
+            uint32 wrote = static_cast<uint32>(res);
+            dbgAssert(wrote <= _sendBuffer.bufsSize());
+
+            totalWrote += wrote;
+            _sendBuffer.drop(wrote);
+
+            if(wrote < _sendBuffer.bufsSize())
             {
                 _lastReadyState &= ~poll::descriptor::rsf_write;
-                _sendBuffer.flush(wrote);
                 break;
-            }
-            else
-            {
-                dbgAssert(wrote == _sendBuffer.bufsSize());
-                _sendBuffer.flush(wrote);
             }
         }
 
@@ -340,13 +338,9 @@ namespace dci::module::net::stream
         dbgAssert(_sock.native() == native);
         dbgAssert(_lastReadyState & poll::descriptor::rsf_read);
 
-        _lastReadyState &= ~poll::descriptor::rsf_read;
+        utils::RecvBuffer* recvBuffer = _host->getRecvBuffer();
 
-        uint32 totalReaded = 0;
-        Bytes data;
-        auto recvBuffer = _host->getRecvBuffer();
-
-        for(;;)
+        while(_receiveStarted)
         {
 #ifdef _WIN32
             DWORD received{};
@@ -362,62 +356,36 @@ namespace dci::module::net::stream
 
             if(0 > res)
             {
+                _lastReadyState &= ~poll::descriptor::rsf_read;
+
 #ifdef _WIN32
                 DWORD lastError = WSAGetLastError();
                 bool notReady = (WSATRY_AGAIN == lastError) || (WSAEWOULDBLOCK == lastError);
 #else
-                bool notReady = EAGAIN == errno;
+                bool noDataInSocketYet = EAGAIN == errno;
 #endif
-                if(notReady)
+                if(noDataInSocketYet)
                 {
-                    if(!totalReaded)
-                    {
-                        return true;
-                    }
-
                     break;
                 }
 
-                failed(utils::fetchSystemError(), true);
+                if(!(_lastReadyState & poll::descriptor::rsf_eof))
+                {
+                    _lastReadyState |= ~poll::descriptor::rsf_error;
+                    failed(utils::fetchSystemError(), true);
+                }
+                return false;
+            }
+            else if(0 == res)
+            {
+                //peer closed
+                _lastReadyState &= ~poll::descriptor::rsf_read;
+                _lastReadyState |= ~poll::descriptor::rsf_eof;
+                close();
                 return false;
             }
 
-            uint32 readed = static_cast<uint32>(res);
-            totalReaded += readed;
-
-            if(0 == readed)
-            {
-                break;
-            }
-            else if(readed < recvBuffer->totalSize())
-            {
-                recvBuffer->flushTo(data.end(), readed);
-                break;
-            }
-            else
-            {
-                dbgAssert(readed == recvBuffer->totalSize());
-                recvBuffer->flushTo(data.end());
-            }
-        }
-
-        if(totalReaded)
-        {
-            if(_receiveStarted)
-            {
-                dbgAssert(_receivedData.empty());
-                methods()->received(std::move(data));
-            }
-            else
-            {
-                _receivedData.end().write(std::move(data));
-            }
-        }
-        else
-        {
-            //peer closed
-            close();
-            return false;
+            methods()->received(recvBuffer->detach(static_cast<uint32>(res)));
         }
 
         return true;
@@ -490,25 +458,22 @@ namespace dci::module::net::stream
             return;
         }
 
+        if(poll::descriptor::rsf_write & _lastReadyState)
+        {
+            doWrite(native);
+        }
+
+        if(poll::descriptor::rsf_read & _lastReadyState)
+        {
+            doRead(native);
+        }
+
         if(poll::descriptor::rsf_eof & _lastReadyState)
         {
             _lastReadyState = {};
 
             close();
             return;
-        }
-
-        if(poll::descriptor::rsf_write & _lastReadyState)
-        {
-            if(!doWrite(native))
-            {
-                return;
-            }
-        }
-
-        if(poll::descriptor::rsf_read & _lastReadyState)
-        {
-            doRead(native);
         }
     }
 }

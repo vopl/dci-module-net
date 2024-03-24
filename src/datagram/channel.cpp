@@ -300,10 +300,7 @@ namespace dci::module::net::datagram
         api::Endpoint peer;
         utils::sockaddr::convert(&saddr._base, saddrLen, peer);
 
-        Bytes data;
-        recvBuffer->flushTo(data.end(), static_cast<uint32>(res));
-
-        methods()->received(std::move(data), peer);
+        methods()->received(recvBuffer->detach(static_cast<uint32>(res)), peer);
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7

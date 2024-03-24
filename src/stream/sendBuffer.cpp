@@ -78,7 +78,7 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void SendBuffer::flush(uint32 size)
+    void SendBuffer::drop(uint32 size)
     {
         dbgAssert(_bufsSize >= size);
         dbgAssert(!empty());

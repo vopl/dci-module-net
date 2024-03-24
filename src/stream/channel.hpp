@@ -60,7 +60,6 @@ namespace dci::module::net
 
             bool                _connected = false;
             bool                _receiveStarted = false;
-            Bytes               _receivedData;
         };
     }
 }

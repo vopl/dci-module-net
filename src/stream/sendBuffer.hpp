@@ -31,7 +31,7 @@ namespace dci::module::net::stream
 
         uint32 totalSize() const;
 
-        void flush(uint32 size);
+        void drop(uint32 size);
 
     private:
         void enfillBufs();

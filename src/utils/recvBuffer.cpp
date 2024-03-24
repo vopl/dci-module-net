@@ -44,17 +44,19 @@ namespace dci::module::net::utils
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void RecvBuffer::flushTo(bytes::Alter&& dst)
-    {
-        dst.write(_chunks[0], _chunks[_bufsAmount-1], _totalSize);
-        allocate(_bufsAmount);
-    }
-
-    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void RecvBuffer::flushTo(bytes::Alter&& dst, uint32 size)
+    Bytes RecvBuffer::detach(uint32 size)
     {
         dbgAssert(size > 0);
-        dbgAssert(size < _totalSize);
+
+        if(size >= _totalSize)
+        {
+            dci::utils::AtScopeExit after{[&]()
+            {
+                allocate(_bufsAmount);
+            }};
+
+            return Bytes{_chunks[0], _chunks[_bufsAmount-1], _totalSize};
+        }
 
         uint32 bufsAmount = size / bytes::Chunk::bufferSize();
         if(bufsAmount * bytes::Chunk::bufferSize() < size)
@@ -63,10 +65,15 @@ namespace dci::module::net::utils
             bufsAmount++;
         }
         _chunks[bufsAmount-1]->setNext(nullptr);
-        dst.write(_chunks[0], _chunks[bufsAmount-1], size);
 
-        allocate(bufsAmount);
+        dci::utils::AtScopeExit after{[&]()
+        {
+            allocate(bufsAmount);
+        }};
+
+        return Bytes{_chunks[0], _chunks[bufsAmount-1], size};
     }
+
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     void RecvBuffer::allocate(uint32 bufsAmount)

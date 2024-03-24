@@ -24,8 +24,7 @@ namespace dci::module::net::utils
 
         uint32 totalSize();
 
-        void flushTo(bytes::Alter&& dst);
-        void flushTo(bytes::Alter&& dst, uint32 size);
+        Bytes detach(uint32 size);
 
     private:
         void allocate(uint32 bufsAmount);

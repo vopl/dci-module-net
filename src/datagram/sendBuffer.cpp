@@ -50,6 +50,7 @@ namespace dci::module::net::datagram
             _bufsAmount++;
         }
 
+        unreacheable();
         dbgWarn("unreacheable");
         return SourceUtilization::none;
     }

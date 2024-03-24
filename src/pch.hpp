@@ -16,6 +16,7 @@
 #include <dci/utils/win32/error.hpp>
 #include <dci/utils/ip.hpp>
 #include <dci/utils/overloaded.hpp>
+#include <dci/utils/compiler.hpp>
 #include "net.hpp"
 
 #include <memory>
