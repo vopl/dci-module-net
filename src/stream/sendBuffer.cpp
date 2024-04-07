@@ -72,7 +72,7 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    uint32 SendBuffer::totalSize() const
+    uint32 SendBuffer::dataSize() const
     {
         return _data.size();
     }

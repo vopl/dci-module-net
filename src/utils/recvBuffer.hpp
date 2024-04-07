@@ -19,22 +19,29 @@ namespace dci::module::net::utils
         RecvBuffer();
         ~RecvBuffer();
 
+        void limitDataSize(uint32 maxDataSize);
+        void unlimitDataSize();
+
         Buf* bufs();
         uint32 bufsAmount();
-
-        uint32 totalSize();
+        uint32 bufSize();
+        uint32 dataSize();
 
         Bytes detach(uint32 size);
 
     private:
-        void allocate(uint32 bufsAmount);
+        void renewFront(uint32 bufsAmount);
 
     private:
-        static constexpr uint32 _bufsAmount = Buf::_maxBufs;
-        static constexpr uint32 _totalSize = _bufsAmount * bytes::Chunk::bufferSize();
+        static constexpr uint32 _bufSize = bytes::Chunk::bufferSize();
+        static constexpr uint32 _maxBufsAmount = Buf::_maxBufs;
+        static constexpr uint32 _maxDataSize = _bufSize * _maxBufsAmount;
 
     private:
-        bytes::Chunk*   _chunks[_bufsAmount];
-        Buf             _bufs[_bufsAmount];
+        bytes::Chunk*   _chunks[_maxBufsAmount];
+        Buf             _bufs[_maxBufsAmount];
+
+        uint32          _bufsAmount{_maxBufsAmount};
+        uint32          _dataSize{_maxDataSize};
     };
 }

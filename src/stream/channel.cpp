@@ -69,38 +69,38 @@ namespace dci::module::net::stream
             _sendBuffer.push(std::forward<decltype(bytes)>(bytes));
             if(poll::descriptor::rsf_write & _lastReadyState)
             {
-                doWrite(_sock.native());
+                _sock.emitReady();
             }
+        };
+
+        methods()->setReceiveGranula() += this * [&](uint64 granula)
+        {
+            setReceiveGranula(granula);
         };
 
         methods()->startReceive() += this * [&]()
         {
-            if(!_connected)
-            {
-                failed(utils::makeError<api::NotConnected>());
-                return;
-            }
-
-            if(!_receiveStarted)
-            {
-                _receiveStarted = true;
-
-                if(poll::descriptor::rsf_read & _lastReadyState)
-                {
-                    doRead(_sock.native());
-                }
-            }
+            setReceiveGranula(std::numeric_limits<uint32>::max());
         };
 
         methods()->stopReceive() += this * [&]()
         {
-            _receiveStarted = false;
+            setReceiveGranula(0);
         };
 
         methods()->close() += this * [&]()
         {
             close();
         };
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    Channel::~Channel()
+    {
+        sbs::Owner::flush();
+        _sockReadyOwner.flush();
+        _sock.close();
+        _host->untrack(this);
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -190,12 +190,21 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    Channel::~Channel()
+    void Channel::setReceiveGranula(uint64 granula)
     {
-        sbs::Owner::flush();
-        _sockReadyOwner.flush();
-        _sock.close();
-        _host->untrack(this);
+        if(granula > std::numeric_limits<uint32>::max())
+        {
+            failed(utils::makeError<api::InvalidArgument>());
+            return;
+        }
+
+        uint64 prevReceiveGranula = _receiveGranula;
+        _receiveGranula = granula;
+
+        if(_connected && !prevReceiveGranula && _receiveGranula && (poll::descriptor::rsf_read & _lastReadyState))
+        {
+            _sock.emitReady();
+        }
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -242,14 +251,18 @@ namespace dci::module::net::stream
             _connectPromise.resolveCancel();
         }
 
+        if(_connected && (poll::descriptor::rsf_write & _lastReadyState))
+        {
+            doWrite(_sock.native(), true);
+        }
+
         if(!(poll::descriptor::rsf_close & _lastReadyState))
         {
             _sockReadyOwner.flush();
             _sock.close();
         }
 
-        _lastReadyState |= poll::descriptor::rsf_eof;
-
+        _lastReadyState = poll::descriptor::rsf_close;
         _sendBuffer.clear();
 
         if(_connected)
@@ -260,19 +273,19 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    bool Channel::doWrite(poll::descriptor::Native native)
+    bool Channel::doWrite(poll::descriptor::Native native, bool preCloseMode)
     {
         dbgAssert(_sock.native() == native);
         dbgAssert(_lastReadyState & poll::descriptor::rsf_write);
 
         if(_sendBuffer.empty())
         {
-            return true;
+            return false;
         }
 
         uint32 totalWrote = 0;
 
-        while(!_sendBuffer.empty())
+        while((poll::descriptor::rsf_write & _lastReadyState) && !_sendBuffer.empty())
         {
 #ifdef _WIN32
             DWORD sent{};
@@ -298,15 +311,19 @@ namespace dci::module::net::stream
 #endif
                 if(!noSpaceInSocketYet)
                 {
-                    failed(utils::fetchSystemError(), true);
+                    if(!preCloseMode)
+                    {
+                        failed(utils::fetchSystemError(), true);
+                    }
                     return false;
                 }
 
-                return true;
+                break;
             }
 
             if(0 == res)
             {
+                _lastReadyState &= ~poll::descriptor::rsf_write;
                 break;
             }
 
@@ -323,13 +340,13 @@ namespace dci::module::net::stream
             }
         }
 
-        if(totalWrote)
+        if(!preCloseMode && totalWrote)
         {
-            uint32 stillWait = _sendBuffer.totalSize();
+            uint32 stillWait = _sendBuffer.dataSize();
             methods()->sended(totalWrote, stillWait);
         }
 
-        return true;
+        return 0 < totalWrote;
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -339,9 +356,11 @@ namespace dci::module::net::stream
         dbgAssert(_lastReadyState & poll::descriptor::rsf_read);
 
         utils::RecvBuffer* recvBuffer = _host->getRecvBuffer();
-
-        while(_receiveStarted)
+        uint32 totalReaded = 0;
+        while((poll::descriptor::rsf_read & _lastReadyState) && _receiveGranula)
         {
+            recvBuffer->limitDataSize(_receiveGranula);
+
 #ifdef _WIN32
             DWORD received{};
             DWORD flags{};
@@ -353,6 +372,8 @@ namespace dci::module::net::stream
 #else
             ssize_t res = ::readv(native, recvBuffer->bufs(), static_cast<int>(recvBuffer->bufsAmount()));
 #endif
+
+            recvBuffer->unlimitDataSize();
 
             if(0 > res)
             {
@@ -381,14 +402,15 @@ namespace dci::module::net::stream
                 //peer closed
                 _lastReadyState &= ~poll::descriptor::rsf_read;
                 _lastReadyState |= ~poll::descriptor::rsf_eof;
-                close();
                 return false;
             }
 
-            methods()->received(recvBuffer->detach(static_cast<uint32>(res)));
+            uint32 readed = static_cast<uint32>(res);
+            totalReaded += readed;
+            methods()->received(recvBuffer->detach(readed));
         }
 
-        return true;
+        return 0 < totalReaded;
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -441,39 +463,45 @@ namespace dci::module::net::stream
 
         _lastReadyState |= readyState;
 
-        if(poll::descriptor::rsf_error & _lastReadyState)
+        bool someProcessed = true;
+        while(someProcessed)
         {
-            _lastReadyState = {};
+            someProcessed = false;
 
-            std::error_code ec = _sock.error();
-            if(ec)
+            if(poll::descriptor::rsf_error & _lastReadyState)
             {
-                failed(utils::makeError(ec), true);
+                _lastReadyState = {};
+
+                std::error_code ec = _sock.error();
+                if(ec)
+                {
+                    failed(utils::makeError(ec), true);
+                }
+                else
+                {
+                    close();
+                }
+
+                return;
             }
-            else
+
+            if(poll::descriptor::rsf_write & _lastReadyState)
             {
+                someProcessed |= doWrite(native);
+            }
+
+            if(poll::descriptor::rsf_read & _lastReadyState)
+            {
+                someProcessed |= doRead(native);
+            }
+
+            if(poll::descriptor::rsf_eof & _lastReadyState)
+            {
+                _lastReadyState = {};
+
                 close();
+                return;
             }
-
-            return;
-        }
-
-        if(poll::descriptor::rsf_write & _lastReadyState)
-        {
-            doWrite(native);
-        }
-
-        if(poll::descriptor::rsf_read & _lastReadyState)
-        {
-            doRead(native);
-        }
-
-        if(poll::descriptor::rsf_eof & _lastReadyState)
-        {
-            _lastReadyState = {};
-
-            close();
-            return;
         }
     }
 }

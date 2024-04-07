@@ -38,10 +38,12 @@ namespace dci::module::net
             cmt::Future<api::stream::Channel<>> connect(bool needBind);
 
         private:
+            void setReceiveGranula(uint64 granula);
+
             void failed(ExceptionPtr e, bool doClose = false);
             void close();
 
-            bool doWrite(poll::descriptor::Native native);
+            bool doWrite(poll::descriptor::Native native, bool preCloseMode = false);
             bool doRead(poll::descriptor::Native native);
 
             void connectSockReady(poll::descriptor::Native native, poll::descriptor::ReadyStateFlags readyState);
@@ -59,7 +61,7 @@ namespace dci::module::net
             cmt::Promise<api::stream::Channel<>>    _connectPromise;
 
             bool                _connected = false;
-            bool                _receiveStarted = false;
+            uint32              _receiveGranula = 0;
         };
     }
 }

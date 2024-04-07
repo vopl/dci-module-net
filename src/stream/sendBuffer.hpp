@@ -29,7 +29,7 @@ namespace dci::module::net::stream
         uint32 bufsAmount() const;
         uint32 bufsSize() const;
 
-        uint32 totalSize() const;
+        uint32 dataSize() const;
 
         void drop(uint32 size);
 

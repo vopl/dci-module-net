@@ -13,7 +13,7 @@ namespace dci::module::net::utils
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     RecvBuffer::RecvBuffer()
     {
-        allocate(_bufsAmount);
+        renewFront(_maxBufsAmount);
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -23,6 +23,33 @@ namespace dci::module::net::utils
         {
             delete c;
         }
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    void RecvBuffer::limitDataSize(uint32 maxDataSize)
+    {
+        if(_bufsAmount < _maxBufsAmount)
+        {
+            _bufs[_bufsAmount-1].len() = _bufSize;
+        }
+
+        if(!maxDataSize || maxDataSize >= _maxDataSize)
+        {
+            _bufsAmount = _maxBufsAmount;
+            _dataSize = _maxDataSize;
+            return;
+        }
+
+        _bufsAmount = (maxDataSize + _bufSize - 1) / _bufSize;
+        _dataSize = maxDataSize;
+
+        _bufs[_bufsAmount-1].len() = maxDataSize % _bufSize;
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    void RecvBuffer::unlimitDataSize()
+    {
+        limitDataSize(_maxDataSize);
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -38,9 +65,15 @@ namespace dci::module::net::utils
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    uint32 RecvBuffer::totalSize()
+    uint32 RecvBuffer::bufSize()
     {
-        return _totalSize;
+        return _bufSize;
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    uint32 RecvBuffer::dataSize()
+    {
+        return _dataSize;
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
@@ -48,27 +81,27 @@ namespace dci::module::net::utils
     {
         dbgAssert(size > 0);
 
-        if(size >= _totalSize)
+        if(size >= _maxDataSize)
         {
             dci::utils::AtScopeExit after{[&]()
             {
-                allocate(_bufsAmount);
+                renewFront(_bufsAmount);
             }};
 
-            return Bytes{_chunks[0], _chunks[_bufsAmount-1], _totalSize};
+            return Bytes{_chunks[0], _chunks[_bufsAmount-1], _maxDataSize};
         }
 
-        uint32 bufsAmount = size / bytes::Chunk::bufferSize();
-        if(bufsAmount * bytes::Chunk::bufferSize() < size)
+        uint32 bufsAmount = size / _bufSize;
+        if(bufsAmount * _bufSize < size)
         {
-            _chunks[bufsAmount]->setEnd(static_cast<uint16>(size - bufsAmount * bytes::Chunk::bufferSize()));
+            _chunks[bufsAmount]->setEnd(static_cast<uint16>(size - bufsAmount * _bufSize));
             bufsAmount++;
         }
         _chunks[bufsAmount-1]->setNext(nullptr);
 
         dci::utils::AtScopeExit after{[&]()
         {
-            allocate(bufsAmount);
+            renewFront(bufsAmount);
         }};
 
         return Bytes{_chunks[0], _chunks[bufsAmount-1], size};
@@ -76,18 +109,29 @@ namespace dci::module::net::utils
 
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
-    void RecvBuffer::allocate(uint32 bufsAmount)
+    void RecvBuffer::renewFront(uint32 bufsAmount)
     {
+        if(_dataSize < _maxDataSize)
+        {
+            if(bufsAmount < _bufsAmount)
+            {
+                _bufs[_bufsAmount-1].len() = _bufSize;
+            }
+
+            _bufsAmount = _maxBufsAmount;
+            _dataSize = _maxDataSize;
+        }
+
         dbgAssert(bufsAmount);
 
         bytes::Chunk* prev = nullptr;
 
         {
             bytes::Chunk *&cur = _chunks[0];
-            cur = new bytes::Chunk{nullptr, nullptr, 0, bytes::Chunk::bufferSize()};
+            cur = new bytes::Chunk{nullptr, nullptr, 0, _bufSize};
 
             _bufs[0].data() = reinterpret_cast<Buf::Data>(cur->data());
-            _bufs[0].len() = bytes::Chunk::bufferSize();
+            _bufs[0].len() = _bufSize;
 
             prev = cur;
         }
@@ -95,10 +139,10 @@ namespace dci::module::net::utils
         for(uint32 i(1); i<bufsAmount; ++i)
         {
             bytes::Chunk *&cur = _chunks[i];
-            cur = new bytes::Chunk{nullptr, prev, 0, bytes::Chunk::bufferSize()};
+            cur = new bytes::Chunk{nullptr, prev, 0, _bufSize};
 
             _bufs[i].data() = reinterpret_cast<Buf::Data>(cur->data());
-            _bufs[i].len() = bytes::Chunk::bufferSize();
+            _bufs[i].len() = _bufSize;
 
             prev->setNext(cur);
             prev = cur;
