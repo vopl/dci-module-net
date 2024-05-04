@@ -88,6 +88,11 @@ namespace dci::module::net::stream
             setReceiveGranula(0);
         };
 
+        methods()->shutdown() += this * [&](bool input, bool output)
+        {
+            shutdown(input, output);
+        };
+
         methods()->close() += this * [&]()
         {
             close();
@@ -244,6 +249,33 @@ namespace dci::module::net::stream
     }
 
     /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
+    void Channel::shutdown(bool input, bool output)
+    {
+        if(!_sock.valid())
+            return;
+
+        if(input)
+            _receiveGranula = 0;
+
+        if(output && _connected && (poll::descriptor::rsf_write & _lastReadyState))
+            doWrite(_sock.native(), true);
+
+        int how;
+        if(input && output)
+            how = SHUT_RDWR;
+        else if(input)
+            how = SHUT_RD;
+        else if(output)
+            how = SHUT_WR;
+        else
+            return;
+
+        int res = ::shutdown(_sock.native(), how);
+        // ignore result
+        (void)res;
+    }
+
+    /////////0/////////1/////////2/////////3/////////4/////////5/////////6/////////7
     void Channel::close()
     {
         if(_connectPromise.charged() && !_connectPromise.resolved())
@@ -311,7 +343,11 @@ namespace dci::module::net::stream
 #endif
                 if(!noSpaceInSocketYet)
                 {
-                    if(!preCloseMode)
+                    if(preCloseMode)
+                    {
+                        _sendBuffer.clear();
+                    }
+                    else
                     {
                         failed(utils::fetchSystemError(), true);
                     }

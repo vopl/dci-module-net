@@ -27,6 +27,7 @@ scope net::stream
 
         out failed              (exception);
 
+        in  shutdown            (bool input, bool output);
         in  close               ();
         out closed              ();
     }

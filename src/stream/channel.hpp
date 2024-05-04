@@ -41,6 +41,7 @@ namespace dci::module::net
             void setReceiveGranula(uint64 granula);
 
             void failed(ExceptionPtr e, bool doClose = false);
+            void shutdown(bool input, bool output);
             void close();
 
             bool doWrite(poll::descriptor::Native native, bool preCloseMode = false);
